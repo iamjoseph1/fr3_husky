@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <type_traits>
@@ -111,7 +112,7 @@ private:
 
     // tracking state
     bool auto_tracking_started_ = false;
-    std::vector<bool> tracker_pose_valid_;
+    std::array<bool, NUM_TRACKERS> tracker_pose_valid_{{false, false, false}};
     double avp_tracking_enable_delay_ = 5.0;
 
     Eigen::Affine3d world_from_base_init_{Eigen::Affine3d::Identity()};

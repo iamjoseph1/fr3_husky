@@ -185,6 +185,12 @@
     <worldbody>
         <!-- ground plane -->
         <geom name="floor" type="plane" size="0 0 0.05" material="groundplane" />
+        <camera name="front_overview"
+                mode="fixed"
+                pos="1.3 -0.25 1.3"
+                euler="0 1 1.57" 
+                fovy="55"
+                resolution="640 480" />
         <xacro:threading_scene/>
 
         <body name="root" pos="0 0 0">

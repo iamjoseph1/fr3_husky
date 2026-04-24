@@ -192,12 +192,12 @@ class VisionProTrackerPublisher(Node):
                 state.qw = qw
                 state.valid = True
 
-                self.get_logger().info(
-                    f"[RECV wrist_world] {parsed['chirality']} "
-                    f"pos=({state.x:.3f}, {state.y:.3f}, {state.z:.3f}) "
-                    f"quat=({state.qx:.3f}, {state.qy:.3f}, {state.qz:.3f}, {state.qw:.3f})",
-                    throttle_duration_sec=0.2,
-                )
+                # self.get_logger().info(
+                #     f"[RECV wrist_world] {parsed['chirality']} "
+                #     f"pos=({state.x:.3f}, {state.y:.3f}, {state.z:.3f}) "
+                #     f"quat=({state.qx:.3f}, {state.qy:.3f}, {state.qz:.3f}, {state.qw:.3f})",
+                #     throttle_duration_sec=0.2,
+                # )
 
             elif kind == "head_world":
                 qx, qy, qz, qw = normalized_quaternion(
@@ -212,13 +212,13 @@ class VisionProTrackerPublisher(Node):
                 self.head_pose.qw = qw
                 self.head_pose.valid = True
 
-                self.get_logger().info(
-                    f"[RECV head_world] "
-                    f"pos=({self.head_pose.x:.3f}, {self.head_pose.y:.3f}, {self.head_pose.z:.3f}) "
-                    f"quat=({self.head_pose.qx:.3f}, {self.head_pose.qy:.3f}, "
-                    f"{self.head_pose.qz:.3f}, {self.head_pose.qw:.3f})",
-                    throttle_duration_sec=0.2,
-                )
+                # self.get_logger().info(
+                #     f"[RECV head_world] "
+                #     f"pos=({self.head_pose.x:.3f}, {self.head_pose.y:.3f}, {self.head_pose.z:.3f}) "
+                #     f"quat=({self.head_pose.qx:.3f}, {self.head_pose.qy:.3f}, "
+                #     f"{self.head_pose.qz:.3f}, {self.head_pose.qw:.3f})",
+                #     throttle_duration_sec=0.2,
+                # )
 
             elif kind == "gesture":
                 if parsed["chirality"] == "left":
@@ -228,34 +228,34 @@ class VisionProTrackerPublisher(Node):
                     self.right_gesture.data = parsed["data"]
                     self.publish_right_gesture()
 
-                self.get_logger().info(
-                    f"[RECV gesture] {parsed['chirality']} data={parsed['data']}",
-                    throttle_duration_sec=0.2,
-                )
+                # self.get_logger().info(
+                #     f"[RECV gesture] {parsed['chirality']} data={parsed['data']}",
+                #     throttle_duration_sec=0.2,
+                # )
 
-        if got_any_packet:
-            self.get_logger().info(
-                "[poll_socket] processed UDP packets",
-                throttle_duration_sec=0.5,
-            )
+        # if got_any_packet:
+        #     self.get_logger().info(
+        #         "[poll_socket] processed UDP packets",
+        #         throttle_duration_sec=0.5,
+        #     )
 
     def publish_left_gesture(self):
         msg = Int32MultiArray()
         msg.data = self.limited_snap_up_gesture(self.left_gesture)
         self.lhand_gesture_pub.publish(msg)
-        self.get_logger().info(
-            f"[PUB lhand_gesture] data={msg.data}",
-            throttle_duration_sec=0.2,
-        )
+        # self.get_logger().info(
+        #     f"[PUB lhand_gesture] data={msg.data}",
+        #     throttle_duration_sec=0.2,
+        # )
 
     def publish_right_gesture(self):
         msg = Int32MultiArray()
         msg.data = self.limited_snap_up_gesture(self.right_gesture)
         self.rhand_gesture_pub.publish(msg)
-        self.get_logger().info(
-            f"[PUB rhand_gesture] data={msg.data}",
-            throttle_duration_sec=0.2,
-        )
+        # self.get_logger().info(
+        #     f"[PUB rhand_gesture] data={msg.data}",
+        #     throttle_duration_sec=0.2,
+        # )
 
     @staticmethod
     def limited_snap_up_gesture(state: GestureState) -> list[int]:
@@ -276,10 +276,10 @@ class VisionProTrackerPublisher(Node):
 
     def publish_tracker_pose(self):
         if not (self.left_pose.valid and self.right_pose.valid):
-            self.get_logger().info(
-                "[PUB tracker_pose] skipped: waiting for left/right hand poses",
-                throttle_duration_sec=1.0,
-            )
+            # self.get_logger().info(
+            #     "[PUB tracker_pose] skipped: waiting for left/right hand poses",
+            #     throttle_duration_sec=1.0,
+            # )
             return
 
         head_pose = self.head_pose if self.head_pose.valid else PoseState(valid=True)
@@ -294,14 +294,14 @@ class VisionProTrackerPublisher(Node):
         ]
 
         self.tracker_pose_pub.publish(msg)
-        self.get_logger().info(
-            "[PUB tracker_pose] "
-            f"frame_id={msg.header.frame_id} | "
-            f"L=({self.left_pose.x:.3f}, {self.left_pose.y:.3f}, {self.left_pose.z:.3f}) "
-            f"R=({self.right_pose.x:.3f}, {self.right_pose.y:.3f}, {self.right_pose.z:.3f}) "
-            f"H=({head_pose.x:.3f}, {head_pose.y:.3f}, {head_pose.z:.3f})",
-            throttle_duration_sec=0.2,
-        )
+        # self.get_logger().info(
+        #     "[PUB tracker_pose] "
+        #     f"frame_id={msg.header.frame_id} | "
+        #     f"L=({self.left_pose.x:.3f}, {self.left_pose.y:.3f}, {self.left_pose.z:.3f}) "
+        #     f"R=({self.right_pose.x:.3f}, {self.right_pose.y:.3f}, {self.right_pose.z:.3f}) "
+        #     f"H=({head_pose.x:.3f}, {head_pose.y:.3f}, {head_pose.z:.3f})",
+        #     throttle_duration_sec=0.2,
+        # )
 
     @staticmethod
     def to_pose_msg(state: PoseState) -> Pose:

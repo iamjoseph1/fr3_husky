@@ -1,3 +1,4 @@
 .vscode
 *.pyc
 __pycache__/
+fr3_husky_controller/scripts/pub_image

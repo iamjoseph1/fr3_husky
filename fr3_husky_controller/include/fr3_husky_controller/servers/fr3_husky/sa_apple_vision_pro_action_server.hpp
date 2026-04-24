@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <type_traits>
@@ -17,6 +18,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
 
@@ -70,6 +72,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr right_constraint_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr l_gesture_state_sub_; // off: 0 | on: 1, 
     rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr r_gesture_state_sub_; // off: 0 | on: 1, 
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr front_overview_image_sub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr front_overview_image_pub_;
 
     // remove
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr tmm_mediapipe_sub_;
@@ -80,6 +84,7 @@ private:
     void subRightConstraintCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
     void subLGestureCallback(const std_msgs::msg::Int32MultiArray::SharedPtr msg);
     void subRGestureCallback(const std_msgs::msg::Int32MultiArray::SharedPtr msg);
+    void subFrontOverviewImageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
 
     // AVP controller state data
     std::vector<Eigen::Affine3d> controller_poses_;      // left, right, head
@@ -114,7 +119,7 @@ private:
 
     // tracking state
     bool auto_tracking_started_ = false;
-    std::vector<bool> tracker_pose_valid_;
+    std::array<bool, NUM_TRACKERS> tracker_pose_valid_{{false, false, false}};
     double avp_tracking_enable_delay_ = 5.0;
 
     Eigen::Affine3d world_from_base_init_{Eigen::Affine3d::Identity()};
@@ -159,6 +164,8 @@ private:
     // JTC completion monitoring: wait for JTC to finish executing before re-activating
     rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr jtc_status_sub_;
     std::atomic<bool> waiting_for_jtc_{false};
+    std::atomic<int64_t> front_overview_publish_until_ns_{0};
+    std::atomic<bool> front_overview_publish_log_pending_{false};
 
 
 };

@@ -327,7 +327,7 @@ void AppleVisionPro::onStart()
 
     // tracking state
     auto_tracking_started_ = false;
-    tracker_pose_valid_.assign(NUM_TRACKERS, false);
+    tracker_pose_valid_.fill(false);
 
     ee_data_.clear();
     waiting_for_jtc_.store(false, std::memory_order_relaxed);

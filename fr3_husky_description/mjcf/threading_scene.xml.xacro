@@ -12,7 +12,7 @@
                   conaffinity="0"/>
         </body>
 
-        <body name="threading_table" pos="0.8 0 0.7"> 
+        <body name="threading_table" pos="0.8 -0.25 0.7"> 
             <geom name="threading_table_top"
                   type="box"
                   size="0.26 0.34 0.02"
@@ -20,7 +20,7 @@
                   friction="1 0.005 0.0001"/>
         </body>
 
-        <body name="needle_obj" pos="0.72 0.18 1.0" quat="0.8660254 0 0 -0.5">
+        <body name="needle_obj" pos="0.72 -0.2 1.0" quat="0.8660254 0 0 -0.5">
             <freejoint name="needle_obj_joint"/>
             <geom name="needle_obj_needle"
                   type="box"
@@ -41,7 +41,7 @@
                   solimp="0.9 0.95 0.001"/>
         </body>
 
-        <body name="tripod_obj" pos="0.88 -0.15 0.8" quat="0.7071068 0 0 0.7071068"> # table 기준 차이 = (+0.08, -0.15, +0.1)
+        <body name="tripod_obj" pos="0.88 -0.40 0.8" quat="0.7071068 0 0 0.7071068"> # table 기준 차이 = (+0.08, -0.15, +0.1)
             <geom name="tripod_obj_ring_0" type="box" pos="0 -0.01 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
             <geom name="tripod_obj_ring_1" type="box" pos="0 -0.006 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
             <geom name="tripod_obj_ring_2" type="box" pos="0 -0.002 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
