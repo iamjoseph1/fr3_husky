@@ -16,7 +16,7 @@
             <geom name="threading_table_top"
                   type="box"
                   size="0.26 0.34 0.02"
-                  rgba="0.45 0.33 0.24 1"
+                  material="table_ceramic"
                   friction="1 0.005 0.0001"/>
         </body>
 

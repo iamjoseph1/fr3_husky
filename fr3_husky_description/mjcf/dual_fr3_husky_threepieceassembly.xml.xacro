@@ -22,7 +22,7 @@
     <!-- camera xacro includes -->
     <xacro:include filename="$(find fr3_husky_description)/mjcf/realsense_d435i.xml.xacro"/>
     <xacro:include filename="$(find fr3_husky_description)/mjcf/azure_kinect.xml.xacro"/>
-    <xacro:include filename="$(find fr3_husky_description)/mjcf/threading_scene.xml.xacro"/>
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/threepieceassembly_scene.xml.xacro"/>
     <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/d435i_assets.xml.xacro" />
     <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/azure_kinect_assets.xml.xacro" />
 
@@ -192,7 +192,7 @@
                 euler="0 1 1.57" 
                 fovy="55"
                 resolution="640 480" />
-        <xacro:threading_scene/>
+        <xacro:threepieceassembly_scene/>
 
         <body name="root" pos="0 0 0">
             <joint name="world_joint" type="free" stiffness="0" damping="0" frictionloss="0" armature="0" />
@@ -228,13 +228,6 @@
             </xacro:husky>
         </body>
     </worldbody>
-
-    <equality>
-        <weld name="weld_needle_right_tcp" body1="right_fr3_hand_tcp" body2="needle_obj"
-              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-        <weld name="weld_needle_left_tcp" body1="left_fr3_hand_tcp" body2="needle_obj"
-              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-    </equality>
 
     <!-- Wheel actuators -->
     <xacro:husky_wheel_actuator prefix="" as_two_wheels="false"/>
