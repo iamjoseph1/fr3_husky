@@ -22,7 +22,7 @@
     <!-- camera xacro includes -->
     <xacro:include filename="$(find fr3_husky_description)/mjcf/realsense_d435i.xml.xacro"/>
     <xacro:include filename="$(find fr3_husky_description)/mjcf/azure_kinect.xml.xacro"/>
-    <xacro:include filename="$(find fr3_husky_description)/mjcf/threading_scene.xml.xacro"/>
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/coffee_scene.xml.xacro"/>
     <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/d435i_assets.xml.xacro" />
     <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/azure_kinect_assets.xml.xacro" />
 
@@ -164,7 +164,12 @@
         <texture file="$(find fr3_husky_description)/textures/light-gray-floor-tile.png" type="2d" name="texplane"/>
         <material name="floorplane" reflectance="0.01" shininess="0.0" specular="0.0" texrepeat="2 2" texture="texplane" texuniform="true"/>
         <texture file="$(find fr3_husky_description)/textures/ceramic.png" type="cube" name="tex-ceramic"/>
+        <material name="ceramic" reflectance="0.5" texrepeat="1 1" texture="tex-ceramic" texuniform="true"/>
         <material name="table_ceramic" reflectance="0.0" shininess="0.0" specular="0.2" texrepeat="1 1" texture="tex-ceramic"/>
+        <texture file="$(find fr3_husky_description)/textures/steel-scratched.png" type="cube" name="steel-metal"/>
+        <texture file="$(find fr3_husky_description)/textures/brass-ambra.png" type="cube" name="brass-metal"/>
+        <material name="smetal" reflectance="1.0" shininess="1.0" specular="1.0" texrepeat="1 1" texture="steel-metal" texuniform="true"/>
+        <material name="bmetal" reflectance="1.0" shininess="1.0" specular="1.0" texrepeat="1 1" texture="brass-metal" texuniform="true"/>
         <texture file="$(find fr3_husky_description)/textures/steel-brushed.png" type="cube" name="tex-steel-brushed"/>
         <material name="table_legs_metal" reflectance="0.8" shininess="0.8" texrepeat="1 1" texture="tex-steel-brushed"/>
         <texture file="$(find fr3_husky_description)/textures/light-gray-plaster.png" type="2d" name="tex-light-gray-plaster"/>
@@ -173,6 +178,10 @@
         <material name="env_blue" rgba="0.024157 0.445201 0.737911 1" />
         <material name="ring_gray" rgba="0.85 0.85 0.85 1" />
         <mesh name="bowl_mesh" file="$(find fr3_husky_description)/meshes/cup_nohandle.stl" scale="1.2 1.2 0.05" />
+        <mesh name="coffee_body_mesh" file="$(find fr3_husky_description)/meshes/coffee_body.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="coffee_lid_mesh" file="$(find fr3_husky_description)/meshes/coffee_lid.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="coffee_base_mesh" file="$(find fr3_husky_description)/meshes/coffee_base.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="coffee_pod_mesh" file="$(find fr3_husky_description)/meshes/coffee_pod.stl" scale="0.018 0.018 0.018"/>
 
         <xacro:fr3_assets arm_id="$(arg arm_id)"/>
         <xacro:franka_hand_assets/>
@@ -196,7 +205,7 @@
                 euler="0 1 1.57" 
                 fovy="55"
                 resolution="640 480" />
-        <xacro:threading_scene/>
+        <xacro:coffee_scene/>
 
         <body name="root" pos="0 0 0">
             <joint name="world_joint" type="free" stiffness="0" damping="0" frictionloss="0" armature="0" />

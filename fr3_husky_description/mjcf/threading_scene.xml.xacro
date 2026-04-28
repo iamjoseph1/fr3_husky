@@ -2,6 +2,9 @@
 <mujoco xmlns:xacro="http://www.ros.org/wiki/xacro">
 
     <xacro:macro name="threading_scene">
+        <!-- <geom pos="-1.2 0 1.5" quat="0.5 0.5 0.5 0.5"
+              size="1.5 1.5 0.01" type="box" conaffinity="0" contype="0"
+              group="1" name="wall_rear_visual" material="walls_mat"/> -->
         <body name="goal_marker" pos="0 0 0">
             <joint name="goal_marker_joint" type="free"/>
             <geom name="goal_marker_geom"
@@ -20,9 +23,9 @@
                   friction="1 0.005 0.0001"/>
         </body>
 
-        <body name="needle_obj" pos="0.72 -0.2 1.0" quat="0.8660254 0 0 -0.5">
-            <freejoint name="needle_obj_joint"/>
-            <geom name="needle_obj_needle"
+        <body name="obj" pos="0.65 -0.4 0.8" quat="0 0 1 0">
+            <freejoint name="obj_joint"/>
+            <geom name="obj_needle"
                   type="box"
                   pos="0 -0.08 0"
                   size="0.005 0.06 0.005"
@@ -31,7 +34,7 @@
                   friction="0.3 0.005 0.0001"
                   solref="0.02 1"
                   solimp="0.9 0.95 0.001"/>
-            <geom name="needle_obj_handle"
+            <geom name="obj_handle"
                   type="box"
                   pos="0 0 0"
                   size="0.02 0.02 0.02"
@@ -41,7 +44,7 @@
                   solimp="0.9 0.95 0.001"/>
         </body>
 
-        <body name="tripod_obj" pos="0.88 -0.40 0.8" quat="0.7071068 0 0 0.7071068"> # table 기준 차이 = (+0.08, -0.15, +0.1)
+        <body name="tripod_obj" pos="0.80 -0.40 0.8" quat="0.7071068 0 0 0.7071068">
             <geom name="tripod_obj_ring_0" type="box" pos="0 -0.01 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
             <geom name="tripod_obj_ring_1" type="box" pos="0 -0.006 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
             <geom name="tripod_obj_ring_2" type="box" pos="0 -0.002 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>

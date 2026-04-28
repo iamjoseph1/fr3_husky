@@ -165,6 +165,10 @@
         <material name="floorplane" reflectance="0.01" shininess="0.0" specular="0.0" texrepeat="2 2" texture="texplane" texuniform="true"/>
         <texture file="$(find fr3_husky_description)/textures/ceramic.png" type="cube" name="tex-ceramic"/>
         <material name="table_ceramic" reflectance="0.0" shininess="0.0" specular="0.2" texrepeat="1 1" texture="tex-ceramic"/>
+        <texture file="$(find fr3_husky_description)/textures/steel-brushed.png" type="cube" name="tex-steel-brushed"/>
+        <material name="table_legs_metal" reflectance="0.8" shininess="0.8" texrepeat="1 1" texture="tex-steel-brushed"/>
+        <texture file="$(find fr3_husky_description)/textures/light-gray-plaster.png" type="2d" name="tex-light-gray-plaster"/>
+        <material name="walls_mat" reflectance="0.0" shininess="0.1" specular="0.1" texrepeat="3 3" texture="tex-light-gray-plaster" texuniform="true"/>
         <material name="env_red" rgba="1 0.072272 0.039546 1" />
         <material name="env_blue" rgba="0.024157 0.445201 0.737911 1" />
         <material name="ring_gray" rgba="0.85 0.85 0.85 1" />
@@ -228,6 +232,13 @@
             </xacro:husky>
         </body>
     </worldbody>
+
+    <equality>
+        <weld name="weld_right_tcp" body1="right_fr3_hand_tcp" body2="obj"
+              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+        <weld name="weld_left_tcp" body1="left_fr3_hand_tcp" body2="obj"
+              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+    </equality>
 
     <!-- Wheel actuators -->
     <xacro:husky_wheel_actuator prefix="" as_two_wheels="false"/>

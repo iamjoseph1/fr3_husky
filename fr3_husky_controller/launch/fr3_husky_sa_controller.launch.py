@@ -83,7 +83,7 @@ def _launch_setup(context, *args, **kwargs):
     # URDF + MJCF paths 
     if is_dual:
         urdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
-        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_threading.xml.xacro')
+        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_square.xml.xacro')
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
             'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false',

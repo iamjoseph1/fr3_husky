@@ -15,6 +15,9 @@
     </xacro:macro>
 
     <xacro:macro name="threepieceassembly_scene">
+        <!-- <geom pos="-1.2 0 1.5" quat="0.5 0.5 0.5 0.5"
+              size="1.5 1.5 0.01" type="box" conaffinity="0" contype="0"
+              group="1" name="wall_rear_visual" material="walls_mat"/> -->
         <!-- MimicGen ThreePieceAssembly object set:
              - table: TableArena-style tabletop with full size (0.8, 0.8, 0.05) and offset z=0.8
              - base: 5x5 border ring of unit boxes, unit half-size 0.019
@@ -22,7 +25,7 @@
              - piece_2: 4-layer bridge piece, unit half-size 0.02
              Placement here is deterministic and chosen to sit on the FR3 Husky top plate. -->
 
-        <body name="threepieceassembly_table" pos="0.9 -0.25 0.7">
+        <body name="threepieceassembly_table" pos="0.9 -0.25 0.6">
             <geom name="threepieceassembly_table_top"
                   type="box"
                   size="0.4 0.4 0.025"
@@ -33,7 +36,7 @@
                   solimp="0.9 0.95 0.001"/>
         </body>
 
-        <body name="base" pos="0.8 -0.25 0.880">
+        <body name="base" pos="0.8 -0.25 0.780">
             <freejoint name="base_joint"/>
             <xacro:threepieceassembly_voxel name="base_0_0_0" pos="-0.076 -0.076 0.0" size="0.019 0.019 0.019" density="10000" rgba="0.70 0.18 0.16 1"/>
             <xacro:threepieceassembly_voxel name="base_0_0_1" pos="-0.076 -0.038 0.0" size="0.019 0.019 0.019" density="10000" rgba="0.70 0.18 0.16 1"/>
@@ -53,7 +56,7 @@
             <xacro:threepieceassembly_voxel name="base_0_4_4" pos="0.076 0.076 0.0" size="0.019 0.019 0.019" density="10000" rgba="0.70 0.18 0.16 1"/>
         </body>
 
-        <body name="piece_1" pos="0.78 0.0 1.012" euler="0 0 1.5708">
+        <body name="piece_1" pos="0.8 -0.25 0.912" euler="0 0 1.5708">
             <freejoint name="piece_1_joint"/>
             <xacro:threepieceassembly_voxel name="piece_1_0_0_0" pos="-0.034 -0.034 -0.034" size="0.017 0.017 0.017" density="100" rgba="0.78 0.25 0.22 1"/>
             <xacro:threepieceassembly_voxel name="piece_1_0_0_1" pos="-0.034 0.0 -0.034" size="0.017 0.017 0.017" density="100" rgba="0.78 0.25 0.22 1"/>
@@ -72,8 +75,8 @@
             <xacro:threepieceassembly_voxel name="piece_1_2_1_2" pos="0.0 0.034 0.034" size="0.017 0.017 0.017" density="100" rgba="0.78 0.25 0.22 1"/>
         </body>
 
-        <body name="piece_2" pos="0.9 -0.45 0.941" euler="0 0 1.5708">
-            <freejoint name="piece_2_joint"/>
+        <body name="obj" pos="0.8 -0.4 0.841" euler="0 0 1.5708">
+            <freejoint name="obj_joint"/>
             <xacro:threepieceassembly_voxel name="piece_2_0_0_0" pos="-0.04 -0.04 -0.06" size="0.02 0.02 0.02" density="100" rgba="0.86 0.38 0.28 1"/>
             <xacro:threepieceassembly_voxel name="piece_2_0_0_1" pos="-0.04 0.0 -0.06" size="0.02 0.02 0.02" density="100" rgba="0.86 0.38 0.28 1"/>
             <xacro:threepieceassembly_voxel name="piece_2_0_0_2" pos="-0.04 0.04 -0.06" size="0.02 0.02 0.02" density="100" rgba="0.86 0.38 0.28 1"/>
