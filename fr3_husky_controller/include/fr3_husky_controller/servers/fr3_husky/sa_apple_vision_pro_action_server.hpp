@@ -96,6 +96,7 @@ private:
     std::vector<bool> is_tracking_mode_on_{false, false};
     bool is_initialize_mode_on_{false};
     std::vector<bool> is_gripper_mode_on_{false, false};
+    bool first_right_gripper_gesture_pending_{false};
     
     // robot data
     std::vector<Eigen::Matrix3d> tracker_base2robot_base_;
