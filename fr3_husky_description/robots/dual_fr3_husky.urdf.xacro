@@ -31,6 +31,7 @@
 
     <!-- Assume Husky as two wheel mobile? (use only for pinocchio, not ros2_control) -->
     <xacro:arg name="as_two_wheels" default="false"/>
+    <xacro:arg name="right_initial_positions" default="[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 1.72787595947]"/>
     <!-- ============================================================= -->
 
     <xacro:arg name="robot_ips" default="['172.16.5.5','172.16.6.6']" />
@@ -207,6 +208,7 @@
         gazebo_effort="false"
         connected_to="tmp_base"
         fix_finger="$(arg fix_finger)"
+        right_initial_positions="$(arg right_initial_positions)"
     />
 
 </robot>

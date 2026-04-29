@@ -51,6 +51,7 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
 
 find_package(ament_cmake REQUIRED)
 find_package(OpenGL REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
     find_package(${Dependency} REQUIRED)
 endforeach()
@@ -151,6 +152,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
                       fr3_controller_parameters
                       fr3_husky_controller_parameters
                       mujoco::mujoco
+                      ${OpenCV_LIBS}
                       pluginlib::pluginlib
                       rclcpp::rclcpp
                       rclcpp_action::rclcpp_action

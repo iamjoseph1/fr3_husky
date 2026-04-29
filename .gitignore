@@ -1,4 +1,5 @@
 .vscode
 *.pyc
 __pycache__/
-fr3_husky_controller/scripts/pub_image
+fr3_husky_controller/src/scripts/
+fr3_husky_controller/collected_images/

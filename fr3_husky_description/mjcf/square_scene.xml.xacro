@@ -75,8 +75,8 @@
                   material="bmetal"/>
         </body>
 
-        <!-- Square nut from robosuite square-nut.xml -->
-        <body name="obj" pos="0.7 -0.5 0.84" quat="0.7071 0 0 0.7071">
+        <!-- Square nut from robosuite square-nut.xml --> <!-- z-axis : 0.7071 0 0 -0.7071 | y-axis : 0.7071 0 0 -0.7071 | x-axis : 0.7071 0 0 -0.7071 -->
+        <body name="obj" pos="0.7 -0.5 0.84" quat="0.7071 0 0 -0.7071">
             <joint name="obj_joint" type="free" damping="0.0005"/>
             <geom pos="-0.03325 0 0"
                   size="0.0105 0.04375 0.01"

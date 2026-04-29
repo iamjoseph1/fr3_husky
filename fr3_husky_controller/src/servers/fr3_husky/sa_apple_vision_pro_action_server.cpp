@@ -1,11 +1,16 @@
 #include <fr3_husky_controller/servers/fr3_husky/sa_apple_vision_pro_action_server.hpp>
 #include <mujoco/mujoco.h>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
+#include <regex>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 namespace mujoco_ros_hardware
@@ -26,6 +31,12 @@ namespace fr3_husky_controller::servers::fr3_husky
 
 namespace
 {
+std::filesystem::path getControllerSourcePubImageRoot()
+{
+    const std::filesystem::path source_file(__FILE__);
+    return source_file.parent_path().parent_path().parent_path().parent_path() / "collected_images";
+}
+
 FR3HuskyModelUpdater& getFR3HuskyModelUpdater(ModelUpdaterBase& model_updater, const std::string& server_name)
 {
     auto* fr3_husky_model_updater = dynamic_cast<FR3HuskyModelUpdater*>(&model_updater);
@@ -194,6 +205,90 @@ sensor_msgs::msg::Image resizeImageNearest(
     }
 
     return dst;
+}
+
+cv::Mat imageMsgToBgrMat(const sensor_msgs::msg::Image& image)
+{
+    if (image.width == 0 || image.height == 0 || image.step == 0 || image.data.empty())
+    {
+        return cv::Mat();
+    }
+
+    if (image.encoding == "bgr8")
+    {
+        cv::Mat bgr(static_cast<int>(image.height),
+                    static_cast<int>(image.width),
+                    CV_8UC3,
+                    const_cast<unsigned char*>(image.data.data()),
+                    image.step);
+        return bgr.clone();
+    }
+
+    if (image.encoding == "rgb8")
+    {
+        cv::Mat rgb(static_cast<int>(image.height),
+                    static_cast<int>(image.width),
+                    CV_8UC3,
+                    const_cast<unsigned char*>(image.data.data()),
+                    image.step);
+        cv::Mat bgr;
+        cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+        return bgr;
+    }
+
+    if (image.encoding == "bgra8")
+    {
+        cv::Mat bgra(static_cast<int>(image.height),
+                     static_cast<int>(image.width),
+                     CV_8UC4,
+                     const_cast<unsigned char*>(image.data.data()),
+                     image.step);
+        cv::Mat bgr;
+        cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
+        return bgr;
+    }
+
+    if (image.encoding == "rgba8")
+    {
+        cv::Mat rgba(static_cast<int>(image.height),
+                     static_cast<int>(image.width),
+                     CV_8UC4,
+                     const_cast<unsigned char*>(image.data.data()),
+                     image.step);
+        cv::Mat bgr;
+        cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+        return bgr;
+    }
+
+    return cv::Mat();
+}
+
+int findNextImageIndex(const std::filesystem::path& directory, const std::string& task_name)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+
+    const std::regex pattern("^" + task_name + "_image_ours_([0-9]+)\\.jpg$");
+    int max_index = -1;
+
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+    {
+        if (ec || !entry.is_regular_file())
+        {
+            continue;
+        }
+
+        std::smatch match;
+        const std::string filename = entry.path().filename().string();
+        if (!std::regex_match(filename, match, pattern))
+        {
+            continue;
+        }
+
+        max_index = std::max(max_index, std::stoi(match[1].str()));
+    }
+
+    return max_index + 1;
 }
 
 // ==================== MUJOCO OBJECT WELD ATTACH / DETACH ====================
@@ -411,6 +506,10 @@ SAAppleVisionPro::SAAppleVisionPro(const std::string& name, const NodePtr& node,
     front_overview_image_pub_ = node_->create_publisher<sensor_msgs::msg::Image>(
         "sa_front_overview/image_raw",
         rclcpp::QoS(1).best_effort());
+    image_save_directory_ =
+        (getControllerSourcePubImageRoot() / image_task_name_).string();
+    next_image_save_index_ =
+        findNextImageIndex(std::filesystem::path(image_save_directory_), image_task_name_);
 
     controller_poses_.assign(NUM_TRACKERS, Eigen::Affine3d::Identity());
     controller_poses_init_.assign(NUM_TRACKERS, Eigen::Affine3d::Identity());
@@ -538,8 +637,13 @@ void SAAppleVisionPro::onStart()
     control_start_time_ = -1.0; // sentinel: set on first compute() call
     q_init_for_home_ = fr3_husky_model_updater_.q_total_;
     right_constraint_orientation_locked_ = false;
-    front_overview_publish_until_ns_.store(0, std::memory_order_relaxed);
-    front_overview_publish_log_pending_.store(false, std::memory_order_relaxed);
+    front_overview_save_enabled_.store(false, std::memory_order_relaxed);
+    front_overview_save_log_pending_.store(false, std::memory_order_relaxed);
+    image_save_directory_ =
+        (getControllerSourcePubImageRoot() / image_task_name_).string();
+    next_image_save_index_ =
+        findNextImageIndex(std::filesystem::path(image_save_directory_), image_task_name_);
+    last_image_save_time_ns_ = 0;
 
     if(!left_controller_ee_name_.empty())
     {
@@ -565,14 +669,16 @@ void SAAppleVisionPro::onStart()
         // Put obj slightly in front of the right tcp before enabling the initial weld
         // so the scene visually starts in an attached-looking configuration.
 
-        // Square : (0.07, 0.0, 0.005)
-        // Three-piece assembly : (0.0, 0.0, 0.05)
-        // Threading : (0.0, 0.0, 0.01)
-        // Coffee : (0.0, 0.0, 0.01)
+        // Coffee               : z-axis (Default) : (0.0, 0.0, 0.01)     | y-axis : NONE              | x-axis           : (0.0, 0.0, 0.0) 
+        // square               : z-axis (Default) : (-0.07, 0.0, 0.005)  | y-axis : (0.0, 0.0, 0.055) | x-axis           : (0.0, 0.0, 0.055)
+        // Threading            : z-axis           : (0.0, 0.0, 0.0)      | y-axis : NONE              | x-axis (Default) : (0.0, 0.0, 0.0) 
+        // threepieceassembly   : z-axis (Default) : (0.0, 0.0, 0.05)     | y-axis : NONE              | x-axis           : (0.08, 0.0, 0.0) 
+
+
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.07, 0.0, 0.005));
+                                         Eigen::Vector3d(0.0, 0.0, 0.0)); // <- Here!!
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
@@ -670,12 +776,13 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
         {
             if (!prev_gesture_states_[IDX_LEFT_CON][IDX_DOUBLE_TAP_GESTURE] && gesture_states_local[IDX_LEFT_CON][IDX_DOUBLE_TAP_GESTURE])
             {
-                front_overview_publish_until_ns_.store(1, std::memory_order_relaxed);
-                front_overview_publish_log_pending_.store(true, std::memory_order_relaxed);
+                front_overview_save_enabled_.store(true, std::memory_order_relaxed);
+                front_overview_save_log_pending_.store(true, std::memory_order_relaxed);
                 RCLCPP_INFO(
                     node_->get_logger(),
-                    "[%s] Left doubletap detected -> continuously publishing front_overview images to sa_front_overview/image_raw",
-                    name_.c_str());
+                    "[%s] Left doubletap detected -> saving front_overview JPG images once per second to %s",
+                    name_.c_str(),
+                    image_save_directory_.c_str());
             }
         }
 
@@ -1124,8 +1231,8 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
 
 void SAAppleVisionPro::onStop(StopReason reason)
 {
-    front_overview_publish_until_ns_.store(0, std::memory_order_relaxed);
-    front_overview_publish_log_pending_.store(false, std::memory_order_relaxed);
+    front_overview_save_enabled_.store(false, std::memory_order_relaxed);
+    front_overview_save_log_pending_.store(false, std::memory_order_relaxed);
     fr3_husky_model_updater_.haltCommands();
 
     const char* reason_str = "none";
@@ -1266,12 +1373,7 @@ void SAAppleVisionPro::subRGestureCallback(const std_msgs::msg::Int32MultiArray:
 
 void SAAppleVisionPro::subFrontOverviewImageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
 {
-    if (!front_overview_image_pub_)
-    {
-        return;
-    }
-
-    if (front_overview_publish_until_ns_.load(std::memory_order_relaxed) == 0)
+    if (!front_overview_save_enabled_.load(std::memory_order_relaxed))
     {
         return;
     }
@@ -1282,19 +1384,73 @@ void SAAppleVisionPro::subFrontOverviewImageCallback(const sensor_msgs::msg::Ima
         return;
     }
 
-    resized.header.stamp = node_->now();
-    front_overview_image_pub_->publish(resized);
-    if (front_overview_publish_log_pending_.exchange(false, std::memory_order_relaxed))
+    const int64_t now_ns = node_->now().nanoseconds();
+    std::string output_path_string;
+    int saved_index = -1;
+
     {
-        RCLCPP_INFO(
-            node_->get_logger(),
-            "[%s] Published front_overview image frame (%ux%u -> %ux%u) on sa_front_overview/image_raw",
-            name_.c_str(),
-            msg->width,
-            msg->height,
-            resized.width,
-            resized.height);
+        std::lock_guard<std::mutex> lock(front_overview_save_mutex_);
+        if (last_image_save_time_ns_ != 0 && (now_ns - last_image_save_time_ns_) < 1000000000LL)
+        {
+            return;
+        }
+
+        const cv::Mat bgr = imageMsgToBgrMat(resized);
+        if (bgr.empty())
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                        "[%s] Unsupported front_overview image encoding for JPG save: %s",
+                        name_.c_str(),
+                        resized.encoding.c_str());
+            return;
+        }
+
+        std::error_code ec;
+        std::filesystem::create_directories(image_save_directory_, ec);
+        if (ec)
+        {
+            RCLCPP_ERROR(node_->get_logger(),
+                        "[%s] Failed to create image save directory %s: %s",
+                        name_.c_str(),
+                        image_save_directory_.c_str(),
+                        ec.message().c_str());
+            return;
+        }
+
+        saved_index = next_image_save_index_;
+        const std::filesystem::path output_path =
+            std::filesystem::path(image_save_directory_) /
+            (image_task_name_ + "_image_ours_" + std::to_string(saved_index) + ".jpg");
+        output_path_string = output_path.string();
+
+        if (!cv::imwrite(output_path_string, bgr))
+        {
+            RCLCPP_ERROR(node_->get_logger(),
+                        "[%s] Failed to save JPG image to %s",
+                        name_.c_str(),
+                        output_path_string.c_str());
+            return;
+        }
+
+        last_image_save_time_ns_ = now_ns;
+        ++next_image_save_index_;
     }
+
+    if (front_overview_save_log_pending_.exchange(false, std::memory_order_relaxed))
+    {
+        RCLCPP_INFO(node_->get_logger(),
+                    "[%s] Started saving %s images to %s (next index now %d)",
+                    name_.c_str(),
+                    image_task_name_.c_str(),
+                    image_save_directory_.c_str(),
+                    next_image_save_index_);
+    }
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[%s] Saved front_overview JPG [%d]: %s",
+                name_.c_str(),
+                saved_index,
+                output_path_string.c_str());
 }
 
 

@@ -1,3 +1,14 @@
+'''
+## right_initial_positions ##
+
+- coffee              : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
+- square              : z-axis : Default                                   | y-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 0.6] | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
+- threading           : z-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]   | y-axis : -                                       | x-axis : Default
+- threepieceassembly  : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
+
+'''
+
+
 import os
 import yaml
 import xacro
@@ -66,6 +77,7 @@ def _launch_setup(context, *args, **kwargs):
     mujoco_camera_viewer_script = LaunchConfiguration('mujoco_camera_viewer_script')
     mujoco_camera_viewer_left_topic = LaunchConfiguration('mujoco_camera_viewer_left_topic')
     mujoco_camera_viewer_right_topic = LaunchConfiguration('mujoco_camera_viewer_right_topic')
+    right_initial_positions = LaunchConfiguration('right_initial_positions').perform(context)
 
     if not robot_sides:
         raise RuntimeError("robot_side must be 'left', 'right', or 'dual'.")
@@ -83,12 +95,13 @@ def _launch_setup(context, *args, **kwargs):
     # URDF + MJCF paths 
     if is_dual:
         urdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
-        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_square.xml.xacro')
+        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_coffee.xml.xacro')
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
             'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false',
             'use_mujoco': use_mujoco, 'use_fake_hardware': use_fake_hardware,
             'fake_sensor_commands': fake_sensor_commands,
+            'right_initial_positions': right_initial_positions,
         }
     else:
         urdf_path = os.path.join(pkg_desc, 'robots', 'single_fr3_husky.urdf.xacro')
@@ -309,6 +322,11 @@ def generate_launch_description():
         DeclareLaunchArgument('avp_udp_port',      default_value='5005', description='UDP bind port for AVP bridge'),
         DeclareLaunchArgument('avp_frame_id',      default_value='avp_world', description='Frame id used in tracker_pose header'),
         DeclareLaunchArgument('launch_mujoco_camera_viewer', default_value='true', description='Launch split MuJoCo camera viewer when use_mujoco is true'),
+        DeclareLaunchArgument(
+            'right_initial_positions',
+            default_value='[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 1.72787595947]',
+            description='Initial positions for right FR3 joints 1..7 in dual-arm launch',
+        ),
         DeclareLaunchArgument(
             'mujoco_camera_viewer_script',
             default_value=PathJoinSubstitution([FindPackageShare('fr3_husky_controller'), 'scripts', 'mujoco_split_camera_viewer.py']),
