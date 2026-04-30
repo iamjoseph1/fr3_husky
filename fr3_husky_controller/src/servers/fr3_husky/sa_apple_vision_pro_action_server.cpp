@@ -678,7 +678,7 @@ void SAAppleVisionPro::onStart()
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.0, 0.0, 0.0)); // <- Here!!
+                                         Eigen::Vector3d(0.08, 0.0, 0.0)); // <- Here!!
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
@@ -1099,15 +1099,26 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
         {
             case 0: // CLIK
                 {   
-                    // --- Arm null_qdot: cubic toward HomePose ---
-                    Eigen::VectorXd HomePose_total(fr3_husky_model_updater_.manipulator_dof_);
-                    for(size_t i = 0; i < fr3_husky_model_updater_.num_robots_; ++i)
-                        HomePose_total.segment(FR3_DOF*i, FR3_DOF) = HomePose;
-
-                    static constexpr double null_space_duration = 5.0;
-                    const Eigen::VectorXd zeros_mani = Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_);
+                    // Null-space homing is intentionally disabled for SA AVP so
+                    // joint redundancy does not drift the arms toward HomePose
+                    // while the end-effectors are being held/teleoperated.
+                    // Eigen::VectorXd HomePose_total(fr3_husky_model_updater_.manipulator_dof_);
+                    // for(size_t i = 0; i < fr3_husky_model_updater_.num_robots_; ++i)
+                    //     HomePose_total.segment(FR3_DOF*i, FR3_DOF) = HomePose;
+                    //
+                    // static constexpr double null_space_duration = 5.0;
+                    // const Eigen::VectorXd zeros_mani = Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_);
+                    // const Eigen::VectorXd null_qdot_mani =
+                    //     fr3_husky_model_updater_.robot_controller_->moveManipulatorJointVelocityCubic(
+                    //         HomePose_total,
+                    //         zeros_mani,
+                    //         q_init_for_home_,
+                    //         zeros_mani,
+                    //         time.seconds(),
+                    //         control_start_time_,
+                    //         null_space_duration);
                     const Eigen::VectorXd null_qdot_mani =
-                        fr3_husky_model_updater_.robot_controller_->moveManipulatorJointVelocityCubic(HomePose_total, zeros_mani, q_init_for_home_,  zeros_mani, time.seconds(), control_start_time_, null_space_duration);
+                        Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_);
 
                     // --- Mobile null_qdot: drive mobile toward EE target (compensates for arm homing) ---
                     // As arm is pulled toward home by null space, EE error grows → mobile drives to fill the gap
@@ -1148,18 +1159,25 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 }
             case 1: // OSF
                 {
-                    // Build HomePose target for null space (per robot)
-                    Eigen::VectorXd HomePose_total(fr3_husky_model_updater_.manipulator_dof_);
-                    for(size_t i = 0; i < fr3_husky_model_updater_.num_robots_; ++i) HomePose_total.segment(FR3_DOF*i, FR3_DOF) = HomePose;
                     Eigen::VectorXd null_torque(fr3_husky_model_updater_.robot_data_->getActuatorDof());
-                    null_torque.segment(fr3_husky_model_updater_.robot_data_->getActuatorIndex().mani_start, fr3_husky_model_updater_.manipulator_dof_) = 
-                        fr3_husky_model_updater_.robot_controller_->moveManipulatorJointTorqueCubic(HomePose_total,
-                                                                                            Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_),
-                                                                                            q_init_for_home_,
-                                                                                            Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_),
-                                                                                            time.seconds(),
-                                                                                            control_start_time_,
-                                                                                            3.0);
+                    // Eigen::VectorXd HomePose_total(fr3_husky_model_updater_.manipulator_dof_);
+                    // for(size_t i = 0; i < fr3_husky_model_updater_.num_robots_; ++i)
+                    //     HomePose_total.segment(FR3_DOF*i, FR3_DOF) = HomePose;
+                    // null_torque.segment(
+                    //     fr3_husky_model_updater_.robot_data_->getActuatorIndex().mani_start,
+                    //     fr3_husky_model_updater_.manipulator_dof_) =
+                    //     fr3_husky_model_updater_.robot_controller_->moveManipulatorJointTorqueCubic(
+                    //         HomePose_total,
+                    //         Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_),
+                    //         q_init_for_home_,
+                    //         Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_),
+                    //         time.seconds(),
+                    //         control_start_time_,
+                    //         3.0);
+                    null_torque.segment(
+                        fr3_husky_model_updater_.robot_data_->getActuatorIndex().mani_start,
+                        fr3_husky_model_updater_.manipulator_dof_) =
+                        Eigen::VectorXd::Zero(fr3_husky_model_updater_.manipulator_dof_);
                     // Null-space viscous damping: -kd * wheel_vel_ dissipates kinetic energy of the base
                     static constexpr double mobile_null_damping = 10.0; // [N·m·s/rad]: tune as needed
                     null_torque.segment(fr3_husky_model_updater_.robot_data_->getActuatorIndex().mobi_start, fr3_husky_model_updater_.mobile_dof_) =
