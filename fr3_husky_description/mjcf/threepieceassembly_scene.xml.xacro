@@ -28,7 +28,7 @@
         <body name="threepieceassembly_table" pos="0.9 -0.25 0.6">
             <geom name="threepieceassembly_table_top"
                   type="box"
-                  size="0.4 0.4 0.025"
+                  size="0.4 0.6 0.025"
                   density="500"
                   material="table_ceramic"
                   friction="1 0.005 0.0001"
@@ -75,7 +75,7 @@
             <xacro:threepieceassembly_voxel name="piece_1_2_1_2" pos="0.0 0.034 0.034" size="0.017 0.017 0.017" density="100" rgba="0.78 0.25 0.22 1"/>
         </body>
 
-        <body name="obj" pos="0.8 -0.4 0.841" euler="0 0 1.5708"> <!-- z-axis : 0 0 1.5708 | y-axis : NONE | x-axis : 0 0 1.5708-->
+        <body name="obj" pos="0.8 -0.5 0.841" euler="0 0 1.5708"> <!-- z-axis : 0 0 1.5708 | y-axis : NONE | x-axis : 0 0 1.5708-->
             <freejoint name="obj_joint"/>
             <xacro:threepieceassembly_voxel name="piece_2_0_0_0" pos="-0.04 -0.04 -0.06" size="0.02 0.02 0.02" density="100" rgba="0.86 0.38 0.28 1"/>
             <xacro:threepieceassembly_voxel name="piece_2_0_0_1" pos="-0.04 0.0 -0.06" size="0.02 0.02 0.02" density="100" rgba="0.86 0.38 0.28 1"/>

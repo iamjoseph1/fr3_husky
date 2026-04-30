@@ -1,13 +1,179 @@
 #include "fr3_husky_controller/fr3_husky_action_controller.hpp"
 
+#include <mujoco/mujoco.h>
 #include <unordered_set>
+#include <random>
 #include <controller_manager_msgs/srv/list_hardware_interfaces.hpp>
+
+// --------------- MuJoco object random spawn ---------------
+namespace mujoco_ros_hardware
+{
+class MujocoWorldSingleton
+{
+public:
+    static MujocoWorldSingleton& get();
+    bool isSceneLoaded() const;
+    const std::string& xacroPath() const;
+    mjModel* model() const;
+    mjData* data() const;
+    std::mutex& dataMutex();
+};
+}  // namespace mujoco_ros_hardware
+
+// --------------- MuJoco object random spawn ---------------
 
 namespace fr3_husky_controller
 {
 namespace
 {
     constexpr const char* kJoyTopic = "/joy";
+
+// --------------- MuJoco object random spawn ---------------
+    constexpr double kSceneSpawnPerturbRadiusM = 0.1;
+    constexpr double kSceneSpawnMaxYawDeg = 20.0;
+    constexpr double kTwoPi = 6.28318530717958647692;
+
+Eigen::Vector2d sampleDiskOffset(double radius_m)
+{
+    static thread_local std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<double> angle_dist(0.0, kTwoPi);
+    std::uniform_real_distribution<double> unit_dist(0.0, 1.0);
+
+    const double angle = angle_dist(rng);
+    const double radius = radius_m * std::sqrt(unit_dist(rng));
+    return Eigen::Vector2d(radius * std::cos(angle), radius * std::sin(angle));
+}
+
+bool perturbStaticBodyXY(mjModel* model, const std::string& body_name, const Eigen::Vector2d& xy_offset)
+{
+    const int body_id = mj_name2id(model, mjOBJ_BODY, body_name.c_str());
+    if (body_id < 0) return false;
+
+    model->body_pos[3 * body_id + 0] += xy_offset.x();
+    model->body_pos[3 * body_id + 1] += xy_offset.y();
+    return true;
+}
+
+double sampleYawRadiansFromDegreeLimit(double max_abs_deg)
+{
+    static thread_local std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<double> yaw_deg_dist(-max_abs_deg, max_abs_deg);
+    return yaw_deg_dist(rng) * M_PI / 180.0;
+}
+
+bool applyStaticBodyYawWorldZ(mjModel* model, const std::string& body_name, double yaw_rad)
+{
+    const int body_id = mj_name2id(model, mjOBJ_BODY, body_name.c_str());
+    if (body_id < 0) return false;
+
+    Eigen::Quaterniond q_body(
+        model->body_quat[4 * body_id + 0],
+        model->body_quat[4 * body_id + 1],
+        model->body_quat[4 * body_id + 2],
+        model->body_quat[4 * body_id + 3]);
+    const Eigen::Quaterniond q_yaw(Eigen::AngleAxisd(yaw_rad, Eigen::Vector3d::UnitZ()));
+    q_body = (q_yaw * q_body).normalized();
+
+    model->body_quat[4 * body_id + 0] = q_body.w();
+    model->body_quat[4 * body_id + 1] = q_body.x();
+    model->body_quat[4 * body_id + 2] = q_body.y();
+    model->body_quat[4 * body_id + 3] = q_body.z();
+    return true;
+}
+
+bool perturbFreeJointXY(const mjModel* model, mjData* data, const std::string& joint_name, const Eigen::Vector2d& xy_offset)
+{
+    const int joint_id = mj_name2id(model, mjOBJ_JOINT, joint_name.c_str());
+    if (joint_id < 0) return false;
+
+    const int qpos_adr = model->jnt_qposadr[joint_id];
+    data->qpos[qpos_adr + 0] += xy_offset.x();
+    data->qpos[qpos_adr + 1] += xy_offset.y();
+    return true;
+}
+
+bool applyFreeJointYawWorldZ(const mjModel* model, mjData* data, const std::string& joint_name, double yaw_rad)
+{
+    const int joint_id = mj_name2id(model, mjOBJ_JOINT, joint_name.c_str());
+    if (joint_id < 0) return false;
+
+    const int qpos_adr = model->jnt_qposadr[joint_id];
+    Eigen::Quaterniond q_body(
+        data->qpos[qpos_adr + 3],
+        data->qpos[qpos_adr + 4],
+        data->qpos[qpos_adr + 5],
+        data->qpos[qpos_adr + 6]);
+    const Eigen::Quaterniond q_yaw(Eigen::AngleAxisd(yaw_rad, Eigen::Vector3d::UnitZ()));
+    q_body = (q_yaw * q_body).normalized();
+
+    data->qpos[qpos_adr + 3] = q_body.w();
+    data->qpos[qpos_adr + 4] = q_body.x();
+    data->qpos[qpos_adr + 5] = q_body.y();
+    data->qpos[qpos_adr + 6] = q_body.z();
+    return true;
+}
+
+void maybeRandomizeSceneSpawn(
+    const rclcpp_lifecycle::LifecycleNode::SharedPtr& node, bool& randomized_flag)
+{
+    if (randomized_flag) return;
+
+    auto& world = mujoco_ros_hardware::MujocoWorldSingleton::get();
+    if (!world.isSceneLoaded()) return;
+
+    const std::string xacro_path = world.xacroPath();
+    if (xacro_path.empty()) return;
+
+    std::lock_guard<std::mutex> lock(world.dataMutex());
+    mjModel* model = world.model();
+    mjData* data = world.data();
+    if (!model || !data) return;
+
+    const Eigen::Vector2d xy_offset = sampleDiskOffset(kSceneSpawnPerturbRadiusM);
+    const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
+    bool changed = false;
+
+    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos)
+    {
+        changed = perturbStaticBodyXY(model, "tripod_obj", xy_offset);
+        changed = applyStaticBodyYawWorldZ(model, "tripod_obj", yaw_rad) || changed;
+    }
+    else if (xacro_path.find("dual_fr3_husky_threepieceassembly.xml.xacro") != std::string::npos)
+    {
+        const bool base_ok = perturbFreeJointXY(model, data, "base_joint", xy_offset);
+        const bool piece_ok = perturbFreeJointXY(model, data, "piece_1_joint", xy_offset);
+        const bool base_yaw_ok = applyFreeJointYawWorldZ(model, data, "base_joint", yaw_rad);
+        const bool piece_yaw_ok = applyFreeJointYawWorldZ(model, data, "piece_1_joint", yaw_rad);
+        changed = base_ok || piece_ok || base_yaw_ok || piece_yaw_ok;
+    }
+    else if (xacro_path.find("dual_fr3_husky_square.xml.xacro") != std::string::npos)
+    {
+        changed = perturbStaticBodyXY(model, "peg1", xy_offset);
+        changed = applyStaticBodyYawWorldZ(model, "peg1", yaw_rad) || changed;
+    }
+    else if (xacro_path.find("dual_fr3_husky_coffee.xml.xacro") != std::string::npos)
+    {
+        changed = perturbStaticBodyXY(model, "coffee_machine_root", xy_offset);
+        changed = applyStaticBodyYawWorldZ(model, "coffee_machine_root", yaw_rad) || changed;
+    }
+
+    if (!changed) return;
+
+    mj_forward(model, data);
+    randomized_flag = true;
+    RCLCPP_INFO(
+        node->get_logger(),
+        "[SceneSpawn] Applied XY/yaw perturbation for scene '%s': radius<=%.3f m max_yaw=%.1f deg dx=%.4f dy=%.4f yaw_deg=%.2f",
+        xacro_path.c_str(),
+        kSceneSpawnPerturbRadiusM,
+        kSceneSpawnMaxYawDeg,
+        xy_offset.x(),
+        xy_offset.y(),
+        yaw_rad * 180.0 / M_PI);
+}
+
+// --------------- MuJoco object random spawn ---------------
+
 }  // namespace
 
 controller_interface::InterfaceConfiguration FR3HuskyActionController::state_interface_configuration() const
@@ -636,6 +802,10 @@ CallbackReturn FR3HuskyActionController::on_activate(const rclcpp_lifecycle::Sta
     model_updater_->updateJointStates();
     model_updater_->updateRobotData();
     model_updater_->setInitFromCurrent();
+    maybeRandomizeSceneSpawn(get_node(), scene_spawn_randomized_);
+    model_updater_->updateJointStates();
+    model_updater_->updateRobotData();
+    model_updater_->setInitFromCurrent();
 
     is_halted_ = false;
 
@@ -667,6 +837,7 @@ CallbackReturn FR3HuskyActionController::on_deactivate(const rclcpp_lifecycle::S
     estop_is_active_ = false;
     estop_button_pressed_.store(false, std::memory_order_release);
     joy_msg_received_.store(false, std::memory_order_release);
+    scene_spawn_randomized_ = false;
 
     return CallbackReturn::SUCCESS;
 }

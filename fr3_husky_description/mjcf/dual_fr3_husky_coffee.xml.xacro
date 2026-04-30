@@ -201,9 +201,9 @@
         <geom name="floor" type="plane" size="0 0 0.05" material="floorplane" />
         <camera name="front_overview"
                 mode="fixed"
-                pos="1.3 -0.25 1.3"
-                euler="0 1 1.57" 
-                fovy="55"
+                pos="1.15 -0.25 1.15"
+                euler="0 0.9 1.57" 
+                fovy="120"
                 resolution="640 480" />
         <xacro:coffee_scene/>
 

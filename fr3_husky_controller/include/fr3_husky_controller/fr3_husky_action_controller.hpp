@@ -124,6 +124,7 @@ class FR3HuskyActionController : public controller_interface::ControllerInterfac
         // ========================================================================
         std::vector<std::unique_ptr<franka_semantic_components::FrankaRobotModel>> franka_robot_model_;
         bool use_franka_model_{false};
+        bool scene_spawn_randomized_{false};
         
         // ========================================================================
         // ============================= Task Space Data ==========================
