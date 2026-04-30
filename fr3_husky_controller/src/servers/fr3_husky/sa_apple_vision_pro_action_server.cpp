@@ -678,7 +678,7 @@ void SAAppleVisionPro::onStart()
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.08, 0.0, 0.0)); // <- Here!!
+                                         Eigen::Vector3d(0.0, 0.0, 0.01)); // <- Here!!
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
