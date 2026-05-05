@@ -34,7 +34,6 @@
 #define IDX_PINCH_SNAP_LEFT_GESTURE   1 // index of pinch snap gesture in "l/r gesture" topic
 #define IDX_PINCH_SNAP_RIGHT_GESTURE  2 // index of pinch snap gesture in "l/r gesture" topic
 #define IDX_PINCH_SNAP_UP_GESTURE     3 // index of pinch snap gesture in "l/r gesture" topic
-#define IDX_PINCH_SNAP_DOWN_GESTURE   4 // index of pinch snap gesture in "l/r gesture" topic
 #define IDX_DOUBLE_TAP_GESTURE        5 // index of double tap gesture in "l/r gesture" topic
 
 namespace fr3_husky_controller::servers::fr3_husky
@@ -146,9 +145,12 @@ private:
     std::mutex right_constraint_mutex_;
     std::mutex front_overview_save_mutex_;
 
-    Eigen::Matrix<double, 6, 1> right_constraint_vector_ = Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Vector3d right_constraint_vector_ = Eigen::Vector3d::Zero();
     bool right_constraint_received_{false};
+    bool right_constraint_applying_{false};
     bool right_constraint_orientation_locked_{false};
+    bool right_constraint_anchor_pose_locked_{false};
+    Eigen::Affine3d right_constraint_anchor_pose_ = Eigen::Affine3d::Identity();
     Eigen::Matrix3d right_constraint_locked_orientation_ = Eigen::Matrix3d::Identity();
 
     // null space HomePose cubic
@@ -169,10 +171,11 @@ private:
     std::atomic<bool> waiting_for_jtc_{false};
     std::atomic<bool> front_overview_save_enabled_{false};
     std::atomic<bool> front_overview_save_log_pending_{false};
-    std::string image_task_name_{"coffee"};
+    std::string image_task_name_{"square"};
     std::string image_save_directory_;
     int next_image_save_index_{0};
     int64_t last_image_save_time_ns_{0};
+    int64_t front_overview_publish_until_ns_{0};
 
 
 };

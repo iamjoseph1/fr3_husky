@@ -637,6 +637,7 @@ void SAAppleVisionPro::onStart()
     control_start_time_ = -1.0; // sentinel: set on first compute() call
     q_init_for_home_ = fr3_husky_model_updater_.q_total_;
     right_constraint_orientation_locked_ = false;
+    right_constraint_anchor_pose_locked_ = false;
     front_overview_save_enabled_.store(false, std::memory_order_relaxed);
     front_overview_save_log_pending_.store(false, std::memory_order_relaxed);
     image_save_directory_ =
@@ -644,6 +645,7 @@ void SAAppleVisionPro::onStart()
     next_image_save_index_ =
         findNextImageIndex(std::filesystem::path(image_save_directory_), image_task_name_);
     last_image_save_time_ns_ = 0;
+    front_overview_publish_until_ns_ = 0;
 
     if(!left_controller_ee_name_.empty())
     {
@@ -670,7 +672,7 @@ void SAAppleVisionPro::onStart()
         // so the scene visually starts in an attached-looking configuration.
 
         // Coffee               : z-axis (Default) : (0.0, 0.0, 0.01)     | y-axis : NONE              | x-axis           : (0.0, 0.0, 0.0) 
-        // square               : z-axis (Default) : (-0.07, 0.0, 0.005)  | y-axis : (0.0, 0.0, 0.055) | x-axis           : (0.0, 0.0, 0.055)
+        // square               : z-axis (Default) : (-0.07, 0.0, 0.005)  | y-axis : NONE              | x-axis           : (0.0, 0.0, 0.055)
         // Threading            : z-axis           : (0.0, 0.0, 0.0)      | y-axis : NONE              | x-axis (Default) : (0.0, 0.0, 0.0) 
         // threepieceassembly   : z-axis (Default) : (0.0, 0.0, 0.05)     | y-axis : NONE              | x-axis           : (0.08, 0.0, 0.0) 
 
@@ -678,7 +680,7 @@ void SAAppleVisionPro::onStart()
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.0, 0.0, 0.01)); // <- Here!!
+                                         Eigen::Vector3d(0.08, 0.0, 0.0)); // <- Here!!
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
@@ -711,12 +713,14 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
         std::lock_guard<std::mutex> lock(gesture_state_mutex_);
         gesture_states_local = gesture_states_;
     }
-    Eigen::Matrix<double, 6, 1> right_constraint_vector_local = Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Vector3d right_constraint_vector_local = Eigen::Vector3d::Zero();
     bool right_constraint_received_local = false;
+    bool right_constraint_applying_local = false;
     {
         std::lock_guard<std::mutex> lock(right_constraint_mutex_);
         right_constraint_vector_local = right_constraint_vector_;
         right_constraint_received_local = right_constraint_received_;
+        right_constraint_applying_local = right_constraint_applying_;
     }
 
 
@@ -769,20 +773,61 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
         }
     }
 
-    // Gripper control
+    // Gripper control / right-constraint toggle
     {
+        if (!prev_gesture_states_[IDX_RIGHT_CON][IDX_PINCH_GESTURE] &&
+            gesture_states_local[IDX_RIGHT_CON][IDX_PINCH_GESTURE])
+        {
+            std::lock_guard<std::mutex> lock(right_constraint_mutex_);
+            if (right_constraint_received_ && right_constraint_applying_)
+            {
+                right_constraint_applying_ = false;
+                right_constraint_orientation_locked_ = false;
+                right_constraint_anchor_pose_locked_ = false;
+                right_constraint_applying_local = right_constraint_applying_;
+                controller_poses_init_[IDX_RIGHT_CON] = controller_poses_local[IDX_RIGHT_CON];
+                controller_poses_init_[IDX_HEAD_CON] = controller_poses_local[IDX_HEAD_CON];
+                ee_data_[right_controller_ee_name_].setInit();
+                prev_target_right_ = ee_data_[right_controller_ee_name_].x;
+                is_first_target_right_ = false;
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Right pinch released the applied right constraint",
+                    name_.c_str());
+            }
+            else if (right_constraint_received_)
+            {
+                right_constraint_applying_ = true;
+                right_constraint_orientation_locked_ = false;
+                right_constraint_anchor_pose_locked_ = false;
+                right_constraint_applying_local = right_constraint_applying_;
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Right pinch re-applied the stored right constraint",
+                    name_.c_str());
+            }
+            else
+            {
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Right pinch detected but no stored right constraint is available",
+                    name_.c_str());
+            }
+        }
+
         // Left controller
         if (!left_controller_ee_name_.empty())
         {
             if (!prev_gesture_states_[IDX_LEFT_CON][IDX_DOUBLE_TAP_GESTURE] && gesture_states_local[IDX_LEFT_CON][IDX_DOUBLE_TAP_GESTURE])
             {
+                const int64_t now_ns = node_->now().nanoseconds();
                 front_overview_save_enabled_.store(true, std::memory_order_relaxed);
                 front_overview_save_log_pending_.store(true, std::memory_order_relaxed);
+                front_overview_publish_until_ns_ = now_ns + 2000000000LL;
                 RCLCPP_INFO(
                     node_->get_logger(),
-                    "[%s] Left doubletap detected -> saving front_overview JPG images once per second to %s",
-                    name_.c_str(),
-                    image_save_directory_.c_str());
+                    "[%s] Left doubletap detected -> publishing resized front_overview images for 2 seconds",
+                    name_.c_str());
             }
         }
 
@@ -1039,9 +1084,10 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                     prev_target_right_ = raw_target;
                     is_first_target_right_ = false;
                 }
-                if (right_constraint_received_local)
+                if (right_constraint_received_local && right_constraint_applying_local)
                 {
                     Eigen::Matrix3d locked_orientation = Eigen::Matrix3d::Identity();
+                    Eigen::Affine3d anchor_pose = Eigen::Affine3d::Identity();
                     {
                         std::lock_guard<std::mutex> lock(right_constraint_mutex_);
                         if (!right_constraint_orientation_locked_)
@@ -1049,11 +1095,16 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                             right_constraint_locked_orientation_ = ee_data_[right_controller_ee_name_].x.linear();
                             right_constraint_orientation_locked_ = true;
                         }
+                        if (!right_constraint_anchor_pose_locked_)
+                        {
+                            right_constraint_anchor_pose_ = ee_data_[right_controller_ee_name_].x;
+                            right_constraint_anchor_pose_locked_ = true;
+                        }
                         locked_orientation = right_constraint_locked_orientation_;
+                        anchor_pose = right_constraint_anchor_pose_;
                     }
 
-                    const Eigen::Vector3d translation_selector =
-                        right_constraint_vector_local.head<3>();
+                    const Eigen::Vector3d translation_selector = right_constraint_vector_local;
                     const Eigen::Vector3d rotation_selector = translation_selector;
 
                     const Eigen::Vector3d local_translation_axis =
@@ -1062,7 +1113,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                     {
                         const Eigen::Matrix3d R_world_from_base = world_from_base_cur_.linear();
                         const Eigen::Vector3d delta_world_raw =
-                            raw_target.translation() - ee_data_[right_controller_ee_name_].x_init.translation();
+                            raw_target.translation() - anchor_pose.translation();
                         const Eigen::Vector3d delta_base_raw =
                             R_world_from_base.transpose() * delta_world_raw;
                         const Eigen::Vector3d allowed_axis_base =
@@ -1071,7 +1122,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                             projectVectorOntoAxis(delta_base_raw, allowed_axis_base);
 
                         raw_target.translation() =
-                            ee_data_[right_controller_ee_name_].x_init.translation() +
+                            anchor_pose.translation() +
                             R_world_from_base * delta_base_regulated;
                     }
 
@@ -1083,6 +1134,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 }
 
                 Eigen::Affine3d smooth_target = smoothAndLimit(prev_target_right_, raw_target, dt);
+
                 prev_target_right_ = smooth_target;
                 ee_data_[right_controller_ee_name_].x_desired = smooth_target;
                 ee_data_[right_controller_ee_name_].xdot_desired  = target_vel;
@@ -1326,30 +1378,45 @@ void SAAppleVisionPro::subPoseCallback(const geometry_msgs::msg::PoseArray::Shar
 
 void SAAppleVisionPro::subRightConstraintCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
 {
-    if (msg->data.size() != 6)
+    if (msg->data.size() != 3)
     {
         RCLCPP_WARN(
             node_->get_logger(),
-            "[%s] Size of Float64MultiArray for sa_right_eef_constraint (%ld) does not equal to 6.",
+            "[%s] Size of Float64MultiArray for sa_right_eef_constraint (%ld) does not equal to 3.",
             name_.c_str(),
             msg->data.size());
         return;
     }
 
-    Eigen::Matrix<double, 6, 1> constraint = Eigen::Matrix<double, 6, 1>::Zero();
-    for (size_t i = 0; i < 6; ++i)
+    Eigen::Vector3d constraint = Eigen::Vector3d::Zero();
+    for (size_t i = 0; i < 3; ++i)
     {
         constraint(static_cast<Eigen::Index>(i)) = msg->data[i];
     }
 
     std::lock_guard<std::mutex> lock(right_constraint_mutex_);
+    const bool first_constraint = !right_constraint_received_;
     const bool changed = !right_constraint_received_ ||
                          !right_constraint_vector_.isApprox(constraint, 1e-9);
     right_constraint_vector_ = constraint;
     right_constraint_received_ = true;
-    if (changed)
+    if (first_constraint)
+    {
+        right_constraint_applying_ = true;
+        right_constraint_orientation_locked_ = false;
+        right_constraint_anchor_pose_locked_ = false;
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "[%s] Received first right constraint -> applying immediately",
+            name_.c_str());
+    }
+    else if (changed)
     {
         right_constraint_orientation_locked_ = false;
+        if (right_constraint_applying_)
+        {
+            right_constraint_anchor_pose_locked_ = false;
+        }
     }
 }
 
@@ -1403,72 +1470,82 @@ void SAAppleVisionPro::subFrontOverviewImageCallback(const sensor_msgs::msg::Ima
     }
 
     const int64_t now_ns = node_->now().nanoseconds();
-    std::string output_path_string;
-    int saved_index = -1;
+    if (front_overview_publish_until_ns_ != 0 && now_ns > front_overview_publish_until_ns_)
+    {
+        front_overview_save_enabled_.store(false, std::memory_order_relaxed);
+        return;
+    }
 
     {
         std::lock_guard<std::mutex> lock(front_overview_save_mutex_);
-        if (last_image_save_time_ns_ != 0 && (now_ns - last_image_save_time_ns_) < 1000000000LL)
+        if (last_image_save_time_ns_ != 0 && (now_ns - last_image_save_time_ns_) < 2000000000LL)
         {
-            return;
-        }
-
-        const cv::Mat bgr = imageMsgToBgrMat(resized);
-        if (bgr.empty())
-        {
-            RCLCPP_WARN(node_->get_logger(),
-                        "[%s] Unsupported front_overview image encoding for JPG save: %s",
-                        name_.c_str(),
-                        resized.encoding.c_str());
-            return;
-        }
-
-        std::error_code ec;
-        std::filesystem::create_directories(image_save_directory_, ec);
-        if (ec)
-        {
-            RCLCPP_ERROR(node_->get_logger(),
-                        "[%s] Failed to create image save directory %s: %s",
-                        name_.c_str(),
-                        image_save_directory_.c_str(),
-                        ec.message().c_str());
-            return;
-        }
-
-        saved_index = next_image_save_index_;
-        const std::filesystem::path output_path =
-            std::filesystem::path(image_save_directory_) /
-            (image_task_name_ + "_image_ours_" + std::to_string(saved_index) + ".jpg");
-        output_path_string = output_path.string();
-
-        if (!cv::imwrite(output_path_string, bgr))
-        {
-            RCLCPP_ERROR(node_->get_logger(),
-                        "[%s] Failed to save JPG image to %s",
-                        name_.c_str(),
-                        output_path_string.c_str());
             return;
         }
 
         last_image_save_time_ns_ = now_ns;
-        ++next_image_save_index_;
     }
+
+    // ==================== FRONT OVERVIEW JPG SAVE (DISABLED) ====================
+    // const cv::Mat bgr = imageMsgToBgrMat(resized);
+    // if (bgr.empty())
+    // {
+    //     RCLCPP_WARN(node_->get_logger(),
+    //                 "[%s] Unsupported front_overview image encoding for JPG save: %s",
+    //                 name_.c_str(),
+    //                 resized.encoding.c_str());
+    //     return;
+    // }
+    //
+    // std::string output_path_string;
+    // int saved_index = -1;
+    // {
+    //     std::lock_guard<std::mutex> lock(front_overview_save_mutex_);
+    //     std::error_code ec;
+    //     std::filesystem::create_directories(image_save_directory_, ec);
+    //     if (ec)
+    //     {
+    //         RCLCPP_ERROR(node_->get_logger(),
+    //                     "[%s] Failed to create image save directory %s: %s",
+    //                     name_.c_str(),
+    //                     image_save_directory_.c_str(),
+    //                     ec.message().c_str());
+    //         return;
+    //     }
+    //
+    //     saved_index = next_image_save_index_;
+    //     const std::filesystem::path output_path =
+    //         std::filesystem::path(image_save_directory_) /
+    //         (image_task_name_ + "_image_ours_" + std::to_string(saved_index) + ".jpg");
+    //     output_path_string = output_path.string();
+    //
+    //     if (!cv::imwrite(output_path_string, bgr))
+    //     {
+    //         RCLCPP_ERROR(node_->get_logger(),
+    //                     "[%s] Failed to save JPG image to %s",
+    //                     name_.c_str(),
+    //                     output_path_string.c_str());
+    //         return;
+    //     }
+    //
+    //     ++next_image_save_index_;
+    // }
+    //
+    // RCLCPP_INFO(node_->get_logger(),
+    //             "[%s] Saved front_overview JPG [%d]: %s",
+    //             name_.c_str(),
+    //             saved_index,
+    //             output_path_string.c_str());
+    // ================= END FRONT OVERVIEW JPG SAVE (DISABLED) ===================
+
+    front_overview_image_pub_->publish(resized);
 
     if (front_overview_save_log_pending_.exchange(false, std::memory_order_relaxed))
     {
         RCLCPP_INFO(node_->get_logger(),
-                    "[%s] Started saving %s images to %s (next index now %d)",
-                    name_.c_str(),
-                    image_task_name_.c_str(),
-                    image_save_directory_.c_str(),
-                    next_image_save_index_);
+                    "[%s] Started publishing resized front_overview images on sa_front_overview/image_raw",
+                    name_.c_str());
     }
-
-    RCLCPP_INFO(node_->get_logger(),
-                "[%s] Saved front_overview JPG [%d]: %s",
-                name_.c_str(),
-                saved_index,
-                output_path_string.c_str());
 }
 
 

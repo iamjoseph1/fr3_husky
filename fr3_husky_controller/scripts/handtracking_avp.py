@@ -16,7 +16,7 @@ def parse_packet(text: str):
 
     wrist_world,timestamp,chirality,x,y,z,qx,qy,qz,qw
     head_world,timestamp,x,y,z,qx,qy,qz,qw
-    gesture,timestamp,chirality,pinch,snap_left,snap_right,snap_up,snap_down,double_tap
+    gesture,timestamp,chirality,pinch,snap_left,snap_right,snap_up,fist,double_tap
     """
     parts = text.strip().split(",")
 
@@ -57,7 +57,7 @@ def parse_packet(text: str):
 
     if len(parts) == 9 and parts[0] == "gesture":
         try:
-            _, timestamp, chirality, pinch, snap_left, snap_right, snap_up, snap_down, double_tap = parts
+            _, timestamp, chirality, pinch, snap_left, snap_right, snap_up, fist, double_tap = parts
             return {
                 "kind": "gesture",
                 "timestamp": float(timestamp),
@@ -67,7 +67,7 @@ def parse_packet(text: str):
                     int(snap_left),
                     int(snap_right),
                     int(snap_up),
-                    int(snap_down),
+                    int(fist),
                     int(double_tap),
                 ],
             }
