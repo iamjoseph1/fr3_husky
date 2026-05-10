@@ -45,26 +45,26 @@
         </body>
 
         <body name="tripod_obj" pos="0.80 -0.05 0.8" quat="0.7071068 0 0 0.7071068">
-            <geom name="tripod_obj_ring_0" type="box" pos="0 -0.01 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_1" type="box" pos="0 -0.006 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_2" type="box" pos="0 -0.002 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_3" type="box" pos="0 0.002 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_4" type="box" pos="0 0.006 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_5" type="box" pos="0 0.01 0.078" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_6" type="box" pos="0 -0.01 0.082" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_7" type="box" pos="0 0.01 0.082" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_8" type="box" pos="0 -0.01 0.086" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_9" type="box" pos="0 0.01 0.086" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_10" type="box" pos="0 -0.01 0.09" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_11" type="box" pos="0 0.01 0.09" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_12" type="box" pos="0 -0.01 0.094" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_13" type="box" pos="0 0.01 0.094" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_14" type="box" pos="0 -0.01 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_15" type="box" pos="0 -0.006 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_16" type="box" pos="0 -0.002 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_17" type="box" pos="0 0.002 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_18" type="box" pos="0 0.006 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
-            <geom name="tripod_obj_ring_19" type="box" pos="0 0.01 0.098" size="0.005 0.002 0.002" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_0" type="box" pos="0 -0.015 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_1" type="box" pos="0 -0.009 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_2" type="box" pos="0 -0.003 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_3" type="box" pos="0 0.003 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_4" type="box" pos="0 0.009 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_5" type="box" pos="0 0.015 0.073" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_6" type="box" pos="0 -0.015 0.079" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_7" type="box" pos="0 0.015 0.079" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_8" type="box" pos="0 -0.015 0.085" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_9" type="box" pos="0 0.015 0.085" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_10" type="box" pos="0 -0.015 0.091" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_11" type="box" pos="0 0.015 0.091" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_12" type="box" pos="0 -0.015 0.097" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_13" type="box" pos="0 0.015 0.097" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_14" type="box" pos="0 -0.015 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_15" type="box" pos="0 -0.009 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_16" type="box" pos="0 -0.003 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_17" type="box" pos="0 0.003 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_18" type="box" pos="0 0.009 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+            <geom name="tripod_obj_ring_19" type="box" pos="0 0.015 0.103" size="0.0075 0.003 0.003" rgba="0.7 0.56 0.36 1" density="100" friction="0.3 0.005 0.0001" solref="0.02 1" solimp="0.9 0.95 0.001"/>
 
             <body name="tripod_obj_tripod_leg_body_0" pos="-0.0293934 -0.0293934 -0.0240192" quat="0.9659258 -0.1830127 0.1830127 0">
                 <geom name="tripod_obj_tripod_0"

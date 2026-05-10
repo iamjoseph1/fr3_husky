@@ -4,7 +4,7 @@
 - coffee              : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
 - square              : z-axis : Default                                   | y-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 0.6] | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
 - threading           : z-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]   | y-axis : -                                       | x-axis : Default
-- threepieceassembly  : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3] ? [0.35, -0.3, 0.0, -2.0, 0.0, 3.14, -2.3] ? [0.45, -0.3, 0.0, -2.0, 3.14, 3.14, 1.0]
+- threepieceassembly  : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3] # [0.35, -0.3, 0.0, -2.0, 0.0, 3.14, -2.3] ? [0.45, -0.3, 0.0, -2.0, 3.14, 3.14, 1.0]
 
 '''
 
@@ -95,7 +95,7 @@ def _launch_setup(context, *args, **kwargs):
     # URDF + MJCF paths 
     if is_dual:
         urdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
-        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_threepieceassembly.xml.xacro')
+        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_threading.xml.xacro')
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
             'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false',

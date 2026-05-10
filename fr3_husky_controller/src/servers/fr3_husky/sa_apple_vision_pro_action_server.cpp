@@ -680,7 +680,7 @@ void SAAppleVisionPro::onStart()
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.08, 0.0, 0.0)); // <- Here!!
+                                         Eigen::Vector3d(0.0, 0.0, 0.0)); // <- Here!!
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
@@ -1111,6 +1111,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                         extractSelectedLocalAxis(translation_selector);
                     if (local_translation_axis.norm() > 1e-6)
                     {
+                        static constexpr double kOffAxisTranslationScale = 0.2;
                         const Eigen::Matrix3d R_world_from_base = world_from_base_cur_.linear();
                         const Eigen::Vector3d delta_world_raw =
                             raw_target.translation() - anchor_pose.translation();
@@ -1118,8 +1119,12 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                             R_world_from_base.transpose() * delta_world_raw;
                         const Eigen::Vector3d allowed_axis_base =
                             R_world_from_base.transpose() * (locked_orientation * local_translation_axis);
-                        const Eigen::Vector3d delta_base_regulated =
+                        const Eigen::Vector3d delta_base_on_axis =
                             projectVectorOntoAxis(delta_base_raw, allowed_axis_base);
+                        const Eigen::Vector3d delta_base_off_axis =
+                            delta_base_raw - delta_base_on_axis;
+                        const Eigen::Vector3d delta_base_regulated =
+                            delta_base_on_axis + kOffAxisTranslationScale * delta_base_off_axis;
 
                         raw_target.translation() =
                             anchor_pose.translation() +

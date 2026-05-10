@@ -29,8 +29,8 @@ namespace
     constexpr const char* kJoyTopic = "/joy";
 
 // --------------- MuJoco object random spawn ---------------
-    constexpr double kSceneSpawnPerturbRadiusM = 0.1;
-    constexpr double kSceneSpawnMaxYawDeg = 20.0;
+    constexpr double kSceneSpawnPerturbRadiusM = 0.05; // 학습시 0.1
+    constexpr double kSceneSpawnMaxYawDeg = 5.0; // 학습시 20.0
     constexpr double kTwoPi = 6.28318530717958647692;
 
 Eigen::Vector2d sampleDiskOffset(double radius_m)
