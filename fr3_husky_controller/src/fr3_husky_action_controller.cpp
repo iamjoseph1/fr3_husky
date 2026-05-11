@@ -29,8 +29,8 @@ namespace
     constexpr const char* kJoyTopic = "/joy";
 
 // --------------- MuJoco object random spawn ---------------
-    constexpr double kSceneSpawnPerturbRadiusM = 0.05; // 학습시 0.1
-    constexpr double kSceneSpawnMaxYawDeg = 5.0; // 학습시 20.0
+    constexpr double kSceneSpawnPerturbRadiusM = 0.0; // 학습시 0.1
+    constexpr double kSceneSpawnMaxYawDeg = 30.0; // 학습시 20.0
     constexpr double kTwoPi = 6.28318530717958647692;
 
 Eigen::Vector2d sampleDiskOffset(double radius_m)
@@ -57,7 +57,7 @@ bool perturbStaticBodyXY(mjModel* model, const std::string& body_name, const Eig
 double sampleYawRadiansFromDegreeLimit(double max_abs_deg)
 {
     static thread_local std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<double> yaw_deg_dist(-max_abs_deg, max_abs_deg);
+    std::uniform_real_distribution<double> yaw_deg_dist(max_abs_deg*0.7, max_abs_deg);
     return yaw_deg_dist(rng) * M_PI / 180.0;
 }
 
@@ -130,16 +130,21 @@ void maybeRandomizeSceneSpawn(
     if (!model || !data) return;
 
     const Eigen::Vector2d xy_offset = sampleDiskOffset(kSceneSpawnPerturbRadiusM);
-    const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
     bool changed = false;
+    double applied_yaw_deg = 0.0;
 
     if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos)
     {
+        constexpr double kThreadingSceneSpawnMaxYawDeg = 0.0;
+        const double yaw_rad = sampleYawRadiansFromDegreeLimit(kThreadingSceneSpawnMaxYawDeg);
+        applied_yaw_deg = yaw_rad * 180.0 / M_PI;
         changed = perturbStaticBodyXY(model, "tripod_obj", xy_offset);
         changed = applyStaticBodyYawWorldZ(model, "tripod_obj", yaw_rad) || changed;
     }
     else if (xacro_path.find("dual_fr3_husky_threepieceassembly.xml.xacro") != std::string::npos)
     {
+        const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
+        applied_yaw_deg = yaw_rad * 180.0 / M_PI;
         const bool base_ok = perturbFreeJointXY(model, data, "base_joint", xy_offset);
         const bool piece_ok = perturbFreeJointXY(model, data, "piece_1_joint", xy_offset);
         const bool base_yaw_ok = applyFreeJointYawWorldZ(model, data, "base_joint", yaw_rad);
@@ -148,11 +153,15 @@ void maybeRandomizeSceneSpawn(
     }
     else if (xacro_path.find("dual_fr3_husky_square.xml.xacro") != std::string::npos)
     {
+        const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
+        applied_yaw_deg = yaw_rad * 180.0 / M_PI;
         changed = perturbStaticBodyXY(model, "peg1", xy_offset);
         changed = applyStaticBodyYawWorldZ(model, "peg1", yaw_rad) || changed;
     }
     else if (xacro_path.find("dual_fr3_husky_coffee.xml.xacro") != std::string::npos)
     {
+        const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
+        applied_yaw_deg = yaw_rad * 180.0 / M_PI;
         changed = perturbStaticBodyXY(model, "coffee_machine_root", xy_offset);
         changed = applyStaticBodyYawWorldZ(model, "coffee_machine_root", yaw_rad) || changed;
     }
@@ -169,7 +178,7 @@ void maybeRandomizeSceneSpawn(
         kSceneSpawnMaxYawDeg,
         xy_offset.x(),
         xy_offset.y(),
-        yaw_rad * 180.0 / M_PI);
+        applied_yaw_deg);
 }
 
 // --------------- MuJoco object random spawn ---------------

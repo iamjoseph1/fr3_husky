@@ -108,7 +108,9 @@
             hand_vis_mesh_materials="['off_white','black','black','white','off_white']"
             finger_vis_mesh_materials="['off_white','black']">
             <cam_body>
-                <body name="${arm_prefix}_fr3_hand_tcp" pos="0 0 0.1034"/>
+                <body name="${arm_prefix}_fr3_hand_tcp" pos="0 0 0.1034">
+                    <site name="${arm_prefix}_fr3_hand_tcp_ft_site" pos="0 0 0" size="0.003" rgba="0 1 0 0.2"/>
+                </body>
                 <xacro:if value="$(arg with_realsense)">
                     <xacro:realsense_d435i_mjcf prefix="${arm_prefix}" ee2cam_tf="${ee2cam_tf}"
                         color_width="$(arg d435i_color_width)"
@@ -239,6 +241,11 @@
         <weld name="weld_left_tcp" body1="left_fr3_hand_tcp" body2="obj"
               active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
     </equality>
+
+    <sensor>
+        <force name="right_fr3_hand_tcp_force" site="right_fr3_hand_tcp_ft_site"/>
+        <torque name="right_fr3_hand_tcp_torque" site="right_fr3_hand_tcp_ft_site"/>
+    </sensor>
 
     <!-- Wheel actuators -->
     <xacro:husky_wheel_actuator prefix="" as_two_wheels="false"/>

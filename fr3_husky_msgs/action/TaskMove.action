@@ -1,0 +1,12 @@
+# Goal: move one or both end effectors to target task-space poses
+string arm_names
+geometry_msgs/PoseStamped[] target_poses
+float32 execution_time
+bool abs
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float64 progress

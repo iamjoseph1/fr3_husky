@@ -28,6 +28,7 @@ setup(
             'sa_apple_vision_pro = fr3_husky_task_manager.sa_apple_vision_pro:main',
             'husky_pedal = fr3_husky_task_manager.husky_pedal:main',
             'move_to_joint = fr3_husky_task_manager.move_to_joint:main',
+            'task_move = fr3_husky_task_manager.task_move:main',
             'gripper_move = fr3_husky_task_manager.gripper_move:main',
         ],
     },

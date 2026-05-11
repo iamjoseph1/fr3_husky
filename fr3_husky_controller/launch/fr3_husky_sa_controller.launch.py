@@ -1,10 +1,10 @@
 '''
 ## right_initial_positions ##
 
-- coffee              : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
-- square              : z-axis : Default                                   | y-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 0.6] | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
-- threading           : z-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]   | y-axis : -                                       | x-axis : Default
-- threepieceassembly  : z-axis : Default                                   | y-axis : -                                       | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3] # [0.35, -0.3, 0.0, -2.0, 0.0, 3.14, -2.3] ? [0.45, -0.3, 0.0, -2.0, 3.14, 3.14, 1.0]
+- coffee              : z-axis : Default                                   | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
+- square              : z-axis : Default                                   | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
+- threading           : z-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]   | x-axis : Default
+- threepieceassembly  : z-axis : Default                                   | x-axis : [0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]
 
 '''
 
@@ -21,6 +21,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+
+def _load_yaml(package_name, rel_path):
+    path = os.path.join(get_package_share_directory(package_name), rel_path)
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
 
 
 def _parse_robot_side(raw_value):
@@ -56,6 +62,79 @@ def _normalize_robot_sides(robot_sides):
     return normalized
 
 
+def _normalize_name(raw_value):
+    return raw_value.strip().lower() if raw_value is not None else ''
+
+
+def _get_sa_startup_weld_offset(task_name, axis_name):
+    startup_weld_offsets = {
+        'coffee': {
+            'x': [0.0, 0.0, 0.0],
+            'z': [0.0, 0.0, 0.01],
+        },
+        'square': {
+            'x': [0.0, 0.0, 0.055],
+            'z': [-0.07, 0.0, 0.005],
+        },
+        'threading': {
+            'x': [0.0, 0.0, 0.0],
+            'z': [0.0, 0.0, 0.0],
+        },
+        'threepieceassembly': {
+            'x': [0.08, 0.0, 0.0],
+            'z': [0.0, 0.0, 0.05],
+        },
+    }
+
+    task_offsets = startup_weld_offsets.get(task_name, {})
+    if axis_name in task_offsets:
+        return task_offsets[axis_name]
+    if 'z' in task_offsets:
+        return task_offsets['z']
+    return [0.0, 0.0, 0.05]
+
+
+def _get_dual_sa_mjcf_filename(task_name):
+    task_to_mjcf = {
+        'threading': 'dual_fr3_husky_threading.xml.xacro',
+        'threepieceassembly': 'dual_fr3_husky_threepieceassembly.xml.xacro',
+        'square': 'dual_fr3_husky_square.xml.xacro',
+        'coffee': 'dual_fr3_husky_coffee.xml.xacro',
+    }
+    return task_to_mjcf.get(task_name, 'dual_fr3_husky_threepieceassembly.xml.xacro')
+
+
+def _get_right_initial_positions(task_name, axis_name):
+    default_positions = '[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 1.72787595947]'
+    x_axis_positions = '[0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]'
+
+    task_axis_to_positions = {
+        'coffee': {
+            'x': x_axis_positions,
+            'z': default_positions,
+        },
+        'square': {
+            'x': x_axis_positions,
+            'z': default_positions,
+        },
+        'threading': {
+            'x': default_positions,
+            'z': x_axis_positions,
+        },
+        'threepieceassembly': {
+            'x': x_axis_positions,
+            'z': default_positions,
+        },
+    }
+
+    task_positions = task_axis_to_positions.get(task_name, {})
+    if axis_name in task_positions:
+        return task_positions[axis_name]
+    if 'z' in task_positions:
+        return task_positions['z']
+    return default_positions
+
+
 def _launch_setup(context, *args, **kwargs):
     robot_sides = _normalize_robot_sides(
         _parse_robot_side(LaunchConfiguration('robot_side').perform(context))
@@ -67,6 +146,7 @@ def _launch_setup(context, *args, **kwargs):
     launch_rviz      = LaunchConfiguration('launch_rviz').perform(context)
     namespace         = LaunchConfiguration('namespace').perform(context)
     controller_name   = LaunchConfiguration('controller_name').perform(context)
+    launch_move_group = LaunchConfiguration('launch_move_group').perform(context)
     joy_dev           = LaunchConfiguration('joy_dev')
     launch_avp_bridge = LaunchConfiguration('launch_avp_bridge')
     avp_bridge_script = LaunchConfiguration('avp_bridge_script')
@@ -77,7 +157,10 @@ def _launch_setup(context, *args, **kwargs):
     mujoco_camera_viewer_script = LaunchConfiguration('mujoco_camera_viewer_script')
     mujoco_camera_viewer_left_topic = LaunchConfiguration('mujoco_camera_viewer_left_topic')
     mujoco_camera_viewer_right_topic = LaunchConfiguration('mujoco_camera_viewer_right_topic')
-    right_initial_positions = LaunchConfiguration('right_initial_positions').perform(context)
+    task_name = _normalize_name(LaunchConfiguration('task_name').perform(context))
+    axis_name = _normalize_name(LaunchConfiguration('axis_name').perform(context))
+    startup_weld_offset = _get_sa_startup_weld_offset(task_name, axis_name)
+    right_initial_positions = _get_right_initial_positions(task_name, axis_name)
 
     if not robot_sides:
         raise RuntimeError("robot_side must be 'left', 'right', or 'dual'.")
@@ -91,11 +174,18 @@ def _launch_setup(context, *args, **kwargs):
 
     pkg_desc = get_package_share_directory('fr3_husky_description')
     pkg_ctrl = get_package_share_directory('fr3_husky_controller')
+    pkg_moveit = get_package_share_directory('fr3_husky_moveit_config')
+    rviz_config = os.path.join(
+        pkg_moveit, 'rviz', 'moveit.rviz'
+    ) if launch_move_group.lower() == 'true' else os.path.join(
+        pkg_ctrl, 'rviz', 'fr3_husky.rviz'
+    )
 
     # URDF + MJCF paths 
     if is_dual:
         urdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
-        mjcf_path = os.path.join(pkg_desc, 'mjcf', 'dual_fr3_husky_threading.xml.xacro')
+        srdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.srdf.xacro')
+        mjcf_path = os.path.join(pkg_desc, 'mjcf', _get_dual_sa_mjcf_filename(task_name))
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
             'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false',
@@ -103,8 +193,10 @@ def _launch_setup(context, *args, **kwargs):
             'fake_sensor_commands': fake_sensor_commands,
             'right_initial_positions': right_initial_positions,
         }
+        srdf_mappings = {'hand': load_gripper}
     else:
         urdf_path = os.path.join(pkg_desc, 'robots', 'single_fr3_husky.urdf.xacro')
+        srdf_path = os.path.join(pkg_desc, 'robots', 'single_fr3_husky.srdf.xacro')
         mjcf_path = os.path.join(pkg_desc, 'mjcf', 'single_fr3_husky.xml.xacro')
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
@@ -113,8 +205,10 @@ def _launch_setup(context, *args, **kwargs):
             'use_mujoco': use_mujoco, 'use_fake_hardware': use_fake_hardware,
             'fake_sensor_commands': fake_sensor_commands,
         }
+        srdf_mappings = {'side': robot_sides[0], 'hand': load_gripper}
 
     robot_description = xacro.process_file(urdf_path, mappings=xacro_mappings).toprettyxml(indent='  ')
+    robot_description_semantic = xacro.process_file(srdf_path, mappings=srdf_mappings).toprettyxml(indent='  ')
 
     # Controllers YAML
     controllers_yaml = os.path.join(pkg_ctrl, 'config', 'fr3_husky_ros_controllers.yaml')
@@ -129,7 +223,12 @@ def _launch_setup(context, *args, **kwargs):
         jsp_sources = [joint_states_topic, f'{robot_sides[0]}_franka_gripper/joint_states']
 
     # controller_manager parameters
-    cm_params = [controllers_yaml, {'robot_description': robot_description}]
+    cm_params = [controllers_yaml, {
+        'robot_description': robot_description,
+        'sa_task_name': task_name,
+        'sa_axis_name': axis_name,
+        'sa_startup_weld_offset': startup_weld_offset,
+    }]
     if use_mujoco.lower() == 'true':
         xacro_args = f' hand:={load_gripper}'
         if not is_dual:
@@ -160,8 +259,11 @@ def _launch_setup(context, *args, **kwargs):
             executable='rviz2',
             name='rviz2',
             output='log',
-            arguments=['-d', os.path.join(pkg_ctrl, 'rviz', 'fr3_husky.rviz')],
-            parameters=[{'robot_description': robot_description}],
+            arguments=['-d', rviz_config],
+            parameters=[{
+                'robot_description': robot_description,
+                'robot_description_semantic': robot_description_semantic,
+            }],
             condition=IfCondition(launch_rviz),
         ),
         Node(
@@ -298,6 +400,82 @@ def _launch_setup(context, *args, **kwargs):
             )
         )
 
+    # ---- Optional move_group (required by fr3_husky_move_to_joint action server) ----
+    if launch_move_group.lower() == 'true':
+        if is_dual:
+            urdf_mg_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
+            srdf_path    = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.srdf.xacro')
+            urdf_mg_map  = {'ros2_control': 'false', 'with_sc': 'false', 'fix_finger': 'false',
+                            'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false'}
+            srdf_map     = {'hand': load_gripper}
+            cfg_sub      = 'dual'
+            ctrl_yaml    = os.path.join('config', 'dual', 'dual_fr3_husky_controllers.yaml')
+            jsp_src      = ['dual_fr3_husky/joint_states']
+        else:
+            robot_side   = robot_sides[0]
+            urdf_mg_path = os.path.join(pkg_desc, 'robots', 'single_fr3_husky.urdf.xacro')
+            srdf_path    = os.path.join(pkg_desc, 'robots', 'single_fr3_husky.srdf.xacro')
+            urdf_mg_map  = {'ros2_control': 'false', 'with_sc': 'false', 'fix_finger': 'false',
+                            'side': robot_side, 'hand': load_gripper,
+                            'virtual_joint': 'false', 'as_two_wheels': 'false'}
+            srdf_map     = {'side': robot_side, 'hand': load_gripper}
+            cfg_sub      = robot_side
+            ctrl_yaml    = os.path.join('config', robot_side, 'single_fr3_husky_controllers.yaml')
+            jsp_src      = [f'{robot_side}_fr3_husky/joint_states']
+
+        mg_robot_desc = xacro.process_file(urdf_mg_path, mappings=urdf_mg_map).toprettyxml(indent='  ')
+        mg_srdf       = xacro.process_file(srdf_path, mappings=srdf_map).toprettyxml(indent='  ')
+        kinematics    = _load_yaml('fr3_husky_moveit_config', os.path.join('config', cfg_sub, 'kinematics.yaml'))
+        ompl_yaml     = _load_yaml('fr3_husky_moveit_config', os.path.join('config', 'ompl_planning.yaml'))
+        ctrl_mgr_yaml = _load_yaml('fr3_husky_moveit_config', ctrl_yaml)
+
+        ompl_cfg = {
+            'move_group': {
+                'planning_plugin': 'ompl_interface/OMPLPlanner',
+                'request_adapters':
+                    'default_planner_request_adapters/AddTimeOptimalParameterization '
+                    'default_planner_request_adapters/ResolveConstraintFrames '
+                    'default_planner_request_adapters/FixWorkspaceBounds '
+                    'default_planner_request_adapters/FixStartStateBounds '
+                    'default_planner_request_adapters/FixStartStateCollision '
+                    'default_planner_request_adapters/FixStartStatePathConstraints',
+                'start_state_max_bounds_error': 0.1,
+            }
+        }
+        ompl_cfg['move_group'].update(ompl_yaml)
+
+        nodes.append(Node(
+            package='moveit_ros_move_group',
+            executable='move_group',
+            namespace=namespace,
+            output='screen',
+            parameters=[
+                {'robot_description': mg_robot_desc},
+                {'robot_description_semantic': mg_srdf},
+                {'robot_description_kinematics': kinematics},
+                ompl_cfg,
+                {'moveit_manage_controllers': False,
+                 'trajectory_execution.allowed_execution_duration_scaling': 1.2,
+                 'trajectory_execution.allowed_goal_duration_margin': 0.5,
+                 'trajectory_execution.allowed_start_tolerance': 0.01},
+                {'moveit_simple_controller_manager': ctrl_mgr_yaml,
+                 'moveit_controller_manager':
+                     'moveit_simple_controller_manager/MoveItSimpleControllerManager'},
+                {'publish_planning_scene': True, 'publish_geometry_updates': True,
+                 'publish_state_updates': True, 'publish_transforms_updates': True},
+            ],
+        ))
+
+        if use_mujoco.lower() == 'true':
+            nodes.append(Node(
+                package='joint_state_publisher',
+                executable='joint_state_publisher',
+                name='joint_state_publisher_moveit',
+                namespace=namespace,
+                parameters=[{'source_list': jsp_src, 'rate': 30}],
+                output='screen',
+            ))
+
     return nodes
 
 
@@ -311,6 +489,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_mujoco',        default_value='false', description='Use MuJoCo hardware interface'),
         DeclareLaunchArgument('use_fake_hardware', default_value='false', description='Use fake hardware'),
         DeclareLaunchArgument('fake_sensor_commands', default_value='false', description='Fake sensor commands'),
+        DeclareLaunchArgument('launch_move_group', default_value='false', description='Launch move_group (needed for fr3_husky_move_to_joint)'),
         DeclareLaunchArgument('launch_rviz',       default_value='false', description='Launch RViz'),
         DeclareLaunchArgument('launch_avp_bridge', default_value='true', description='Launch AVP UDP-to-ROS bridge'),
         DeclareLaunchArgument(
@@ -326,6 +505,16 @@ def generate_launch_description():
             'right_initial_positions',
             default_value='[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 1.72787595947]',
             description='Initial positions for right FR3 joints 1..7 in dual-arm launch',
+        ),
+        DeclareLaunchArgument(
+            'task_name',
+            default_value='threepieceassembly',
+            description='SA task name used for FT/image logging and startup weld offset mapping',
+        ),
+        DeclareLaunchArgument(
+            'axis_name',
+            default_value='x',
+            description='SA axis name used for FT logging and startup weld offset mapping',
         ),
         DeclareLaunchArgument(
             'mujoco_camera_viewer_script',

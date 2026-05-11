@@ -4,11 +4,16 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <mutex>
 #include <regex>
+#include <sstream>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -20,6 +25,7 @@ class MujocoWorldSingleton
 public:
     static MujocoWorldSingleton& get();
     bool isSceneLoaded() const;
+    const std::string& xacroPath() const;
     mjModel* model() const;
     mjData* data() const;
     std::mutex& dataMutex();
@@ -35,6 +41,12 @@ std::filesystem::path getControllerSourcePubImageRoot()
 {
     const std::filesystem::path source_file(__FILE__);
     return source_file.parent_path().parent_path().parent_path().parent_path() / "collected_images";
+}
+
+std::filesystem::path getFTLogRoot()
+{
+    const std::filesystem::path source_file(__FILE__);
+    return source_file.parent_path().parent_path().parent_path().parent_path() / "collected_ft";
 }
 
 FR3HuskyModelUpdater& getFR3HuskyModelUpdater(ModelUpdaterBase& model_updater, const std::string& server_name)
@@ -291,6 +303,136 @@ int findNextImageIndex(const std::filesystem::path& directory, const std::string
     return max_index + 1;
 }
 
+std::string deriveTaskNameFromScenePath(const std::string& xacro_path)
+{
+    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos) return "threading";
+    if (xacro_path.find("dual_fr3_husky_threepieceassembly.xml.xacro") != std::string::npos) return "threepieceassembly";
+    if (xacro_path.find("dual_fr3_husky_square.xml.xacro") != std::string::npos) return "square";
+    if (xacro_path.find("dual_fr3_husky_coffee.xml.xacro") != std::string::npos) return "coffee";
+    return "unknown";
+}
+
+bool readRightTcpFTSensor(const rclcpp::Logger& logger, Eigen::Vector3d& force, Eigen::Vector3d& torque)
+{
+    auto& world = mujoco_ros_hardware::MujocoWorldSingleton::get();
+    if (!world.isSceneLoaded())
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(world.dataMutex());
+    mjModel* model = world.model();
+    mjData* data = world.data();
+    if (!model || !data)
+    {
+        return false;
+    }
+
+    const int force_sensor_id = mj_name2id(model, mjOBJ_SENSOR, "right_fr3_hand_tcp_force");
+    const int torque_sensor_id = mj_name2id(model, mjOBJ_SENSOR, "right_fr3_hand_tcp_torque");
+    if (force_sensor_id < 0 || torque_sensor_id < 0)
+    {
+        static bool warned_missing_sensor = false;
+        if (!warned_missing_sensor)
+        {
+            warned_missing_sensor = true;
+            RCLCPP_WARN(logger,
+                        "[AVP FT] right TCP force/torque sensor not found in the loaded MuJoCo scene.");
+        }
+        return false;
+    }
+
+    const int force_adr = model->sensor_adr[force_sensor_id];
+    const int torque_adr = model->sensor_adr[torque_sensor_id];
+    const int force_dim = model->sensor_dim[force_sensor_id];
+    const int torque_dim = model->sensor_dim[torque_sensor_id];
+    if (force_dim < 3 || torque_dim < 3)
+    {
+        return false;
+    }
+
+    force = Eigen::Vector3d(data->sensordata[force_adr + 0],
+                            data->sensordata[force_adr + 1],
+                            data->sensordata[force_adr + 2]);
+    torque = Eigen::Vector3d(data->sensordata[torque_adr + 0],
+                             data->sensordata[torque_adr + 1],
+                             data->sensordata[torque_adr + 2]);
+    return true;
+}
+
+std::string buildFTLogFilePath(const std::string& task_name,
+                               const std::string& axis_name,
+                               const bool vlm_inference_triggered)
+{
+    const std::filesystem::path directory =
+        getFTLogRoot() /
+        task_name /
+        axis_name /
+        (vlm_inference_triggered ? "ours" : "pure");
+
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+
+    const auto now = std::chrono::system_clock::now();
+    const auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now.time_since_epoch())
+                            .count() %
+                        1000;
+
+    std::tm tm_now{};
+    localtime_r(&time_t_now, &tm_now);
+
+    std::ostringstream oss;
+    oss << "ft_"
+        << std::put_time(&tm_now, "%Y%m%d_%H%M%S")
+        << "_" << std::setw(3) << std::setfill('0') << millis
+        << ".csv";
+    return (directory / oss.str()).string();
+}
+
+void saveFTLogSamples(const rclcpp::Logger& logger,
+                      const std::vector<SAAppleVisionPro::FTSample>& samples,
+                      const std::string& task_name,
+                      const std::string& axis_name,
+                      const bool vlm_inference_triggered)
+{
+    if (samples.empty())
+    {
+        RCLCPP_INFO(logger, "[AVP FT] No FT samples collected; skipping save.");
+        return;
+    }
+
+    const std::string output_path = buildFTLogFilePath(task_name, axis_name, vlm_inference_triggered);
+    std::ofstream ofs(output_path, std::ios::out | std::ios::trunc);
+    if (!ofs.is_open())
+    {
+        RCLCPP_ERROR(logger, "[AVP FT] Failed to open FT log file: %s", output_path.c_str());
+        return;
+    }
+
+    ofs << "time_ns,fx,fy,fz,force_norm,tx,ty,tz,torque_norm\n";
+    ofs << std::fixed << std::setprecision(9);
+    for (const auto& sample : samples)
+    {
+        ofs << sample.time_ns << ","
+            << sample.force.x() << ","
+            << sample.force.y() << ","
+            << sample.force.z() << ","
+            << sample.force_norm << ","
+            << sample.torque.x() << ","
+            << sample.torque.y() << ","
+            << sample.torque.z() << ","
+            << sample.torque_norm << "\n";
+    }
+
+    ofs.close();
+    RCLCPP_INFO(logger,
+                "[AVP FT] Saved %zu FT samples to %s",
+                samples.size(),
+                output_path.c_str());
+}
+
 // ==================== MUJOCO OBJECT WELD ATTACH / DETACH ====================
 // Predefined in fr3_husky_description/mjcf/dual_fr3_husky.xml.xacro:
 //   weld_right_tcp: right_fr3_hand_tcp <-> obj
@@ -484,6 +626,8 @@ SAAppleVisionPro::SAAppleVisionPro(const std::string& name, const NodePtr& node,
 : Base(name, node, model_updater),
   fr3_husky_model_updater_(getFR3HuskyModelUpdater(model_updater, name))
 {
+    refreshRuntimeConfigFromParameters();
+
     const auto tracker_pose_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
     pose_sub_ = node_->create_subscription<geometry_msgs::msg::PoseArray>(
         "tracker_pose",
@@ -559,6 +703,45 @@ SAAppleVisionPro::SAAppleVisionPro(const std::string& name, const NodePtr& node,
     RCLCPP_INFO(node_->get_logger(), "[%s] SAAppleVisionPro created", name_.c_str());
 }
 
+void SAAppleVisionPro::refreshRuntimeConfigFromParameters()
+{
+    constexpr const char* kTaskNameParam = "sa_task_name";
+    constexpr const char* kAxisNameParam = "sa_axis_name";
+    constexpr const char* kStartupWeldOffsetParam = "sa_startup_weld_offset";
+
+    if (!node_->has_parameter(kTaskNameParam))
+    {
+        node_->declare_parameter<std::string>(kTaskNameParam, image_task_name_);
+    }
+    if (!node_->has_parameter(kAxisNameParam))
+    {
+        node_->declare_parameter<std::string>(kAxisNameParam, ft_axis_name_);
+    }
+    if (!node_->has_parameter(kStartupWeldOffsetParam))
+    {
+        node_->declare_parameter<std::vector<double>>(
+            kStartupWeldOffsetParam,
+            {startup_weld_offset_.x(), startup_weld_offset_.y(), startup_weld_offset_.z()});
+    }
+
+    image_task_name_ = node_->get_parameter(kTaskNameParam).as_string();
+    ft_axis_name_ = node_->get_parameter(kAxisNameParam).as_string();
+
+    const auto startup_weld_offset = node_->get_parameter(kStartupWeldOffsetParam).as_double_array();
+    if (startup_weld_offset.size() == 3)
+    {
+        startup_weld_offset_ =
+            Eigen::Vector3d(startup_weld_offset[0], startup_weld_offset[1], startup_weld_offset[2]);
+    }
+    else
+    {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[%s] Parameter %s must contain exactly 3 values. Keeping previous startup weld offset.",
+                    name_.c_str(),
+                    kStartupWeldOffsetParam);
+    }
+}
+
 bool SAAppleVisionPro::acceptGoal(const ActionT::Goal& goal)
 {
 
@@ -612,6 +795,8 @@ void SAAppleVisionPro::onGoalAccepted(const ActionT::Goal& goal)
 
 void SAAppleVisionPro::onStart()
 {
+    refreshRuntimeConfigFromParameters();
+
     {
         std::lock_guard<std::mutex> lock(tracker_pose_mutex_);
         for(auto& tracker_pose : controller_poses_) tracker_pose.setIdentity();
@@ -646,6 +831,12 @@ void SAAppleVisionPro::onStart()
         findNextImageIndex(std::filesystem::path(image_save_directory_), image_task_name_);
     last_image_save_time_ns_ = 0;
     front_overview_publish_until_ns_ = 0;
+    {
+        std::lock_guard<std::mutex> lock(ft_log_mutex_);
+        ft_log_samples_.clear();
+        ft_logging_active_ = false;
+        vlm_inference_triggered_for_ft_ = false;
+    }
 
     if(!left_controller_ee_name_.empty())
     {
@@ -674,13 +865,13 @@ void SAAppleVisionPro::onStart()
         // Coffee               : z-axis (Default) : (0.0, 0.0, 0.01)     | y-axis : NONE              | x-axis           : (0.0, 0.0, 0.0) 
         // square               : z-axis (Default) : (-0.07, 0.0, 0.005)  | y-axis : NONE              | x-axis           : (0.0, 0.0, 0.055)
         // Threading            : z-axis           : (0.0, 0.0, 0.0)      | y-axis : NONE              | x-axis (Default) : (0.0, 0.0, 0.0) 
-        // threepieceassembly   : z-axis (Default) : (0.0, 0.0, 0.05)     | y-axis : NONE              | x-axis           : (0.08, 0.0, 0.0) 
+        // threepieceassembly   : z-axis (Default) : (0.0, 0.0, 0.05)     | y-axis : NONE              | x-axis           : (0.08, 0.0, 0.0)
 
 
 
         placeObjectNearTcpForInitialWeld(node_->get_logger(),
                                          IDX_RIGHT_CON,
-                                         Eigen::Vector3d(0.0, 0.0, 0.0)); // <- Here!!
+                                         startup_weld_offset_);
         setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_LEFT_CON, true);
         setObjectTcpWeldActive(node_->get_logger(), true, is_gripper_mode_on_, IDX_RIGHT_CON, true);
         first_right_gripper_gesture_pending_ = true;
@@ -824,6 +1015,10 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 front_overview_save_enabled_.store(true, std::memory_order_relaxed);
                 front_overview_save_log_pending_.store(true, std::memory_order_relaxed);
                 front_overview_publish_until_ns_ = now_ns + 2000000000LL;
+                {
+                    std::lock_guard<std::mutex> lock(ft_log_mutex_);
+                    vlm_inference_triggered_for_ft_ = true;
+                }
                 RCLCPP_INFO(
                     node_->get_logger(),
                     "[%s] Left doubletap detected -> publishing resized front_overview images for 2 seconds",
@@ -843,6 +1038,11 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                     {
                         first_right_gripper_gesture_pending_ = false;
                         is_gripper_mode_on_[IDX_RIGHT_CON] = true;
+                        {
+                            std::lock_guard<std::mutex> lock(ft_log_mutex_);
+                            ft_log_samples_.clear();
+                            ft_logging_active_ = true;
+                        }
                         RCLCPP_INFO(node_->get_logger(),
                                     "[%s] First right doubletap -> GripperGrasp('%s') only (startup weld already active)",
                                     name_.c_str(),
@@ -854,6 +1054,11 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                         is_gripper_mode_on_[IDX_RIGHT_CON] = !is_gripper_mode_on_[IDX_RIGHT_CON];
                         if (is_gripper_mode_on_[IDX_RIGHT_CON])
                         {
+                            {
+                                std::lock_guard<std::mutex> lock(ft_log_mutex_);
+                                ft_log_samples_.clear();
+                                ft_logging_active_ = true;
+                            }
                             RCLCPP_INFO(node_->get_logger(), "[%s] rhand trigger released → GripperGrasp('%s')", name_.c_str(), robot_name.c_str());
                             fr3_husky_model_updater_.GripperGrasp(robot_name, 0.0, 0.1, 100.0);
 
@@ -869,6 +1074,29 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                             setObjectTcpWeldActive(node_->get_logger(), false, is_gripper_mode_on_, IDX_RIGHT_CON);
 
                             fr3_husky_model_updater_.GripperOpen(robot_name, 0.1);
+
+                            std::vector<FTSample> samples_to_save;
+                            bool vlm_inference_triggered = false;
+                            {
+                                std::lock_guard<std::mutex> lock(ft_log_mutex_);
+                                ft_logging_active_ = false;
+                                samples_to_save = ft_log_samples_;
+                                ft_log_samples_.clear();
+                                vlm_inference_triggered = vlm_inference_triggered_for_ft_;
+                                vlm_inference_triggered_for_ft_ = false;
+                            }
+
+                            std::string task_name = "unknown";
+                            if (auto& world = mujoco_ros_hardware::MujocoWorldSingleton::get();
+                                world.isSceneLoaded())
+                            {
+                                task_name = deriveTaskNameFromScenePath(world.xacroPath());
+                            }
+                            saveFTLogSamples(node_->get_logger(),
+                                             samples_to_save,
+                                             task_name,
+                                             ft_axis_name_,
+                                             vlm_inference_triggered);
                         }
                     }
                 }
@@ -1111,7 +1339,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                         extractSelectedLocalAxis(translation_selector);
                     if (local_translation_axis.norm() > 1e-6)
                     {
-                        static constexpr double kOffAxisTranslationScale = 0.2;
+                        static constexpr double kOffAxisTranslationScale = 0.1;
                         const Eigen::Matrix3d R_world_from_base = world_from_base_cur_.linear();
                         const Eigen::Vector3d delta_world_raw =
                             raw_target.translation() - anchor_pose.translation();
@@ -1290,6 +1518,32 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
 
         fr3_husky_model_updater_.writeCommand(fr3_husky_model_updater_.torque_desired_total_ - fr3_husky_model_updater_.g_total_,
             fr3_husky_model_updater_.wheel_vel_desired_);  // robot_controller automatically add gravity force
+
+        bool ft_logging_active = false;
+        {
+            std::lock_guard<std::mutex> lock(ft_log_mutex_);
+            ft_logging_active = ft_logging_active_;
+        }
+        if (ft_logging_active)
+        {
+            Eigen::Vector3d force = Eigen::Vector3d::Zero();
+            Eigen::Vector3d torque = Eigen::Vector3d::Zero();
+            if (readRightTcpFTSensor(node_->get_logger(), force, torque))
+            {
+                FTSample sample;
+                sample.time_ns = time.nanoseconds();
+                sample.force = force;
+                sample.torque = torque;
+                sample.force_norm = force.norm();
+                sample.torque_norm = torque.norm();
+
+                std::lock_guard<std::mutex> lock(ft_log_mutex_);
+                if (ft_logging_active_)
+                {
+                    ft_log_samples_.push_back(sample);
+                }
+            }
+        }
     
         auto fb = std::make_shared<ActionT::Feedback>();
         fb->is_qp_solved = is_qp_solved;

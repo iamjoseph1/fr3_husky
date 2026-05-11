@@ -2,9 +2,11 @@
 
 #include <array>
 #include <atomic>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include <action_msgs/msg/goal_status.hpp>
 #include <action_msgs/msg/goal_status_array.hpp>
@@ -54,6 +56,15 @@ public:
     int priority() const override { return 7; }
     bool allowPreemption() const override { return true; }
 
+    struct FTSample
+    {
+        int64_t time_ns{0};
+        Eigen::Vector3d force{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d torque{Eigen::Vector3d::Zero()};
+        double force_norm{0.0};
+        double torque_norm{0.0};
+    };
+
 private:
     bool acceptGoal(const ActionT::Goal& goal) override;
     void onGoalAccepted(const ActionT::Goal& goal) override;
@@ -85,6 +96,7 @@ private:
     void subLGestureCallback(const std_msgs::msg::Int32MultiArray::SharedPtr msg);
     void subRGestureCallback(const std_msgs::msg::Int32MultiArray::SharedPtr msg);
     void subFrontOverviewImageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
+    void refreshRuntimeConfigFromParameters();
 
     // AVP controller state data
     std::vector<Eigen::Affine3d> controller_poses_;      // left, right, head
@@ -172,10 +184,17 @@ private:
     std::atomic<bool> front_overview_save_enabled_{false};
     std::atomic<bool> front_overview_save_log_pending_{false};
     std::string image_task_name_{"square"};
+    std::string ft_axis_name_{"x"};
+    Eigen::Vector3d startup_weld_offset_{Eigen::Vector3d(0.0, 0.0, 0.05)};
     std::string image_save_directory_;
     int next_image_save_index_{0};
     int64_t last_image_save_time_ns_{0};
     int64_t front_overview_publish_until_ns_{0};
+
+    std::mutex ft_log_mutex_;
+    std::vector<FTSample> ft_log_samples_;
+    bool ft_logging_active_{false};
+    bool vlm_inference_triggered_for_ft_{false};
 
 
 };

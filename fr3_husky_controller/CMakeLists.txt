@@ -135,6 +135,7 @@ add_library(${PROJECT_NAME} SHARED
     src/servers/fr3_husky/husky_pedal_action_server.cpp
     src/servers/fr3_husky/apple_vision_pro_action_server.cpp
     src/servers/fr3_husky/sa_apple_vision_pro_action_server.cpp
+    src/servers/fr3_husky/task_move_action_server.cpp
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -15,6 +15,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
     "action/AppleVisionPro.action"
     "action/GripperCommand.action"
     "action/HuskyPedal.action"
+    "action/TaskMove.action"
+    DEPENDENCIES geometry_msgs builtin_interfaces
 )
 
 

@@ -3,3 +3,5 @@
 __pycache__/
 fr3_husky_controller/src/scripts/
 fr3_husky_controller/collected_images/
+/fr3_husky_controller/collected_images/
+/fr3_husky_controller/collected_ft/
