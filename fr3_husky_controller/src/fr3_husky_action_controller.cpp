@@ -154,7 +154,7 @@ void maybeRandomizeSceneSpawn(
     else if (xacro_path.find("dual_fr3_husky_square.xml.xacro") != std::string::npos)
     {
         const double yaw_rad = sampleYawRadiansFromDegreeLimit(kSceneSpawnMaxYawDeg);
-        applied_yaw_deg = yaw_rad * 180.0 / M_PI;
+        applied_yaw_deg = 0.5 * yaw_rad * 180.0 / M_PI;
         changed = perturbStaticBodyXY(model, "peg1", xy_offset);
         changed = applyStaticBodyYawWorldZ(model, "peg1", yaw_rad) || changed;
     }

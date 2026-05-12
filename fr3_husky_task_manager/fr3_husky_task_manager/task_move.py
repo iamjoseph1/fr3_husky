@@ -16,7 +16,7 @@ from fr3_husky_msgs.action import TaskMove
 PREDEFINED_TASK_RIGHT_POSES = {
     'threading_x': [0.798, -0.267, 0.761],
     'threading_z': [0.801, -0.294, 0.756],
-    'square_x': [0.851, -0.205, 0.834],
+    'square_x': [0.87, -0.210, 0.834],
     'square_z': [0.857, -0.222, 0.838],
     'threepiece_x': [0.816, -0.256, 0.871],
     'threepiece_z': [0.806, -0.250, 0.871],
