@@ -13,7 +13,7 @@ from fr3_husky_msgs.action import AppleVisionPro
 
 
 class AppleVisionProClient(Node):
-    def __init__(self, disable=False):
+    def __init__(self, disable=False, left_off=False, right_off=False):
         super().__init__('apple_vision_pro_client')
 
         self._action_name = '/fr3_AVP_tracker'
@@ -21,6 +21,8 @@ class AppleVisionProClient(Node):
         self._client = ActionClient(self, AppleVisionPro, self._action_name)
         self._cancel_client = self.create_client(CancelGoal, self._cancel_service_name)
         self._disable = disable
+        self._left_off = left_off
+        self._right_off = right_off
 
     def wait_for_action_server(self) -> bool:
         self.get_logger().info(f'Waiting for action server: {self._action_name}')
@@ -36,8 +38,8 @@ class AppleVisionProClient(Node):
         goal.mode = 0
         goal.left_controller_ee_name = 'left_fr3_hand_tcp'
         goal.right_controller_ee_name = 'right_fr3_hand_tcp'
-        goal.left_tracking_mode_on = True
-        goal.right_tracking_mode_on = True
+        goal.left_tracking_mode_on = not self._left_off
+        goal.right_tracking_mode_on = not self._right_off
         goal.move_orientation = True
         goal.controller_pos_multiplier = 1.0
         goal.controller_ori_multiplier = 1.0
@@ -97,12 +99,14 @@ def parse_args():
         '--disable',
         action='store_true',
         help='Cancel the currently running AppleVisionPro action instead of starting it')
+    parser.add_argument('--left_off', action='store_true')
+    parser.add_argument('--right_off', action='store_true')
     return parser.parse_args()
 
 
-def run_apple_vision_pro(disable=False):
+def run_apple_vision_pro(disable=False, left_off=False, right_off=False):
     rclpy.init()
-    node = AppleVisionProClient(disable=disable)
+    node = AppleVisionProClient(disable=disable, left=left_off, right=right_off)
 
     try:
         ok = node.run()
@@ -117,7 +121,7 @@ def run_apple_vision_pro(disable=False):
 def main(args=None):
     del args
     cli_args = parse_args()
-    run_apple_vision_pro(disable=cli_args.disable)
+    run_apple_vision_pro(disable=cli_args.disable, left_off=cli_args.left_off, right_off=cli_args.right_off)
 
 
 if __name__ == '__main__':
