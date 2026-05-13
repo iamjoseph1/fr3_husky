@@ -299,6 +299,8 @@ void AppleVisionPro::onGoalAccepted(const ActionT::Goal& goal)
     control_mode_ = goal.mode;
     left_controller_ee_name_ = goal.left_controller_ee_name;
     right_controller_ee_name_ = goal.right_controller_ee_name;
+    left_tracking_mode_on_ = goal.left_tracking_mode_on;
+    right_tracking_mode_on_ = goal.right_tracking_mode_on;
     move_ori_ = goal.move_orientation;
     controller_pos_multiplier_ = static_cast<double>(goal.controller_pos_multiplier);
     controller_ori_multiplier_ = static_cast<double>(goal.controller_ori_multiplier);
@@ -523,7 +525,7 @@ AppleVisionPro::ComputeResult AppleVisionPro::compute(const rclcpp::Time& time, 
                 controller_poses_init_[IDX_HEAD_CON] = controller_poses_local[IDX_HEAD_CON];
 
                 // Left hand / left EEF
-                is_tracking_mode_on_[IDX_LEFT_CON] = left_tracker_valid;
+                is_tracking_mode_on_[IDX_LEFT_CON] = left_tracker_valid && left_tracking_mode_on_;
                 if (left_tracker_valid && !left_controller_ee_name_.empty())
                 {
                     controller_poses_init_[IDX_LEFT_CON] = controller_poses_local[IDX_LEFT_CON];
@@ -532,7 +534,7 @@ AppleVisionPro::ComputeResult AppleVisionPro::compute(const rclcpp::Time& time, 
                 }
 
                 // Right hand / right EEF
-                is_tracking_mode_on_[IDX_RIGHT_CON] = right_tracker_valid;
+                is_tracking_mode_on_[IDX_RIGHT_CON] = right_tracker_valid && right_tracking_mode_on_;
                 if (right_tracker_valid && !right_controller_ee_name_.empty())
                 {
                     controller_poses_init_[IDX_RIGHT_CON] = controller_poses_local[IDX_RIGHT_CON];
@@ -1043,23 +1045,6 @@ AppleVisionPro::ResultPtr AppleVisionPro::makeResult(StopReason reason)
     return result;
 }
 
-
-void AppleVisionPro::subPoseCallback2(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
-{   
-
-    Eigen::Vector3d position(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
-    position = dyros_math::lowPassFilter(position, controller_poses_[0].translation(), 0.001, 0.002);
-    Eigen::Quaterniond quaternion(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
-    quaternion.normalize();
-    Eigen::Matrix3d orientation = quaternion.toRotationMatrix();
-    {
-        std::lock_guard<std::mutex> lock(tracker_pose_mutex_);
-        controller_poses_[0].translation() = position;
-        controller_poses_[0].linear() = orientation;
-    }
-
-
-}
 
 
 

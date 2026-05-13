@@ -70,10 +70,6 @@ private:
     rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr l_gesture_state_sub_; // off: 0 | on: 1, 
     rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr r_gesture_state_sub_; // off: 0 | on: 1, 
 
-    // remove
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr tmm_mediapipe_sub_;
-    void subPoseCallback2(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
-
 
     void subPoseCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
     void subLGestureCallback(const std_msgs::msg::Int32MultiArray::SharedPtr msg);
@@ -118,16 +114,13 @@ private:
     Eigen::Affine3d world_from_base_init_{Eigen::Affine3d::Identity()};
     Eigen::Affine3d world_from_base_cur_{Eigen::Affine3d::Identity()};
 
-    // startup orientation alignment
-    std::vector<bool> ori_startup_calib_done_;
-    std::vector<int> ori_startup_calib_count_;
-    std::vector<Eigen::Vector4d> ori_startup_calib_sum_;   // quaternion sum in [w x y z]
-    int ori_startup_calib_samples_ = 10;                   // first n hand poses
 
     // action goal data
     int control_mode_;                     // 0: CLIK, 1: OSF, 2:QPIK, 3:QPID
     std::string left_controller_ee_name_;  // EE name for tracking left AVP controller
     std::string right_controller_ee_name_; // EE name for tracking right AVP controller
+    bool left_tracking_mode_on_;
+    bool right_tracking_mode_on_;
     bool move_ori_;
     double controller_pos_multiplier_;
     double controller_ori_multiplier_;

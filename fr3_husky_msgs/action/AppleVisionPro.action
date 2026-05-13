@@ -1,10 +1,12 @@
 # Define the goal
 int8 mode 0                               # 0: CLIK, 1: OSF, 2:QPIK, 3:QPID (default: 0)
-string left_controller_ee_name            # EE name for tracking left vive controller
-string right_controller_ee_name           # EE name for tracking right vive controller
+string left_controller_ee_name            # EE name for tracking left AVP controller
+string right_controller_ee_name           # EE name for tracking right AVP controller
+bool left_tracking_mode_on True               # start tracking left EE or not (default: True)
+bool right_tracking_mode_on True              # start tracking right EE or not (default: True)
 bool move_orientation False               # move EE orientation or not (default: False)
-float32 controller_pos_multiplier 1.0     # multiplier for target position from vive controller (default: 1.0)
-float32 controller_ori_multiplier 1.0     # multiplier for target orientation from vive controller (default: 1.0)
+float32 controller_pos_multiplier 1.0     # multiplier for target position from AVP controller (default: 1.0)
+float32 controller_ori_multiplier 1.0     # multiplier for target orientation from AVP controller (default: 1.0)
 
 ---
 # Define the result
