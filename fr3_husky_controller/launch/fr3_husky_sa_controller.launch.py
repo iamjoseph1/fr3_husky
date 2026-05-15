@@ -8,6 +8,17 @@
 
 '''
 
+'''
+빌드 : 
+MAKEFLAGS="-j4" colcon build --symlink-install --packages-up-to fr3_husky_controller --executor sequential --event-handlers console_direct+
+source install/setup.bash
+
+실행 : 
+ros2 launch fr3_husky_controller fr3_husky_sa_controller.launch.py robot_side:=dual load_gripper:=true use_mujoco:=true controller_name:=fr3_husky_action_controller task_name:=threading axis_name:=x
+ros2 run fr3_husky_task_manager task_move --arm right --task threading_x
+ros2 run fr3_husky_task_manager sa_apple_vision_pro
+'''
+
 
 import os
 import yaml
@@ -20,6 +31,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -66,7 +78,7 @@ def _normalize_name(raw_value):
     return raw_value.strip().lower() if raw_value is not None else ''
 
 
-def _get_sa_startup_weld_offset(task_name, axis_name):
+def _get_sa_startup_weld_offset(task_name, axis_name): # end effector의 local frame 기준
     startup_weld_offsets = {
         'coffee': {
             'x': [0.0, 0.0, 0.0],
@@ -78,6 +90,7 @@ def _get_sa_startup_weld_offset(task_name, axis_name):
         },
         'threading': {
             'x': [0.0, 0.0, 0.0],
+            'y': [0.0, -0.09, 0.07],
             'z': [0.0, 0.0, 0.0],
         },
         'threepieceassembly': {
@@ -94,7 +107,10 @@ def _get_sa_startup_weld_offset(task_name, axis_name):
     return [0.0, 0.0, 0.05]
 
 
-def _get_dual_sa_mjcf_filename(task_name):
+def _get_dual_sa_mjcf_filename(task_name, axis_name):
+    if task_name == 'threading' and axis_name == 'y':
+        return 'dual_fr3_husky_threading_y.xml.xacro'
+
     task_to_mjcf = {
         'threading': 'dual_fr3_husky_threading.xml.xacro',
         'threepieceassembly': 'dual_fr3_husky_threepieceassembly.xml.xacro',
@@ -107,7 +123,7 @@ def _get_dual_sa_mjcf_filename(task_name):
 def _get_right_initial_positions(task_name, axis_name):
     default_positions = '[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 1.72787595947]'
     x_axis_positions = '[0.0, -0.3, 0.0, -2.0, 1.57, 1.05, 2.3]'
-
+    y_axis_positions = '[0.0, -0.78539816339, 0.0, -2.35619449019, 0.0, 1.57079632679, 0.2]'
     task_axis_to_positions = {
         'coffee': {
             'x': x_axis_positions,
@@ -119,6 +135,7 @@ def _get_right_initial_positions(task_name, axis_name):
         },
         'threading': {
             'x': default_positions,
+            'y' : y_axis_positions,
             'z': x_axis_positions,
         },
         'threepieceassembly': {
@@ -157,6 +174,8 @@ def _launch_setup(context, *args, **kwargs):
     mujoco_camera_viewer_script = LaunchConfiguration('mujoco_camera_viewer_script')
     mujoco_camera_viewer_left_topic = LaunchConfiguration('mujoco_camera_viewer_left_topic')
     mujoco_camera_viewer_right_topic = LaunchConfiguration('mujoco_camera_viewer_right_topic')
+    save_image = LaunchConfiguration('save_image')
+    sa_front_overview_image_saver_script = LaunchConfiguration('sa_front_overview_image_saver_script')
     task_name = _normalize_name(LaunchConfiguration('task_name').perform(context))
     axis_name = _normalize_name(LaunchConfiguration('axis_name').perform(context))
     startup_weld_offset = _get_sa_startup_weld_offset(task_name, axis_name)
@@ -185,7 +204,7 @@ def _launch_setup(context, *args, **kwargs):
     if is_dual:
         urdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.urdf.xacro')
         srdf_path = os.path.join(pkg_desc, 'robots', 'dual_fr3_husky.srdf.xacro')
-        mjcf_path = os.path.join(pkg_desc, 'mjcf', _get_dual_sa_mjcf_filename(task_name))
+        mjcf_path = os.path.join(pkg_desc, 'mjcf', _get_dual_sa_mjcf_filename(task_name, axis_name))
         xacro_mappings = {
             'ros2_control': 'true', 'with_sc': 'false', 'fix_finger': 'false',
             'hand': load_gripper, 'virtual_joint': 'false', 'as_two_wheels': 'false',
@@ -225,8 +244,8 @@ def _launch_setup(context, *args, **kwargs):
     # controller_manager parameters
     cm_params = [controllers_yaml, {
         'robot_description': robot_description,
-        'sa_task_name': task_name,
-        'sa_axis_name': axis_name,
+        'sa_task_name': ParameterValue(task_name, value_type=str),
+        'sa_axis_name': ParameterValue(axis_name, value_type=str),
         'sa_startup_weld_offset': startup_weld_offset,
     }]
     if use_mujoco.lower() == 'true':
@@ -360,6 +379,15 @@ def _launch_setup(context, *args, **kwargs):
                 "'", LaunchConfiguration('use_mujoco'), "' == 'true' and '",
                 launch_mujoco_camera_viewer, "' == 'true'",
             ])),
+        ),
+        ExecuteProcess(
+            cmd=[
+                'python3',
+                sa_front_overview_image_saver_script,
+            ],
+            name='sa_front_overview_image_saver',
+            output='screen',
+            condition=IfCondition(save_image),
         ),
     ]
 
@@ -530,6 +558,16 @@ def generate_launch_description():
             'mujoco_camera_viewer_right_topic',
             default_value='/mujoco_ros_hardware/top_azure/color/image_raw',
             description='Right split-view image topic',
+        ),
+        DeclareLaunchArgument(
+            'save_image',
+            default_value='false',
+            description='When true, save images at 1 Hz from raw front_overview camera while SA left doubletap publish trigger is active',
+        ),
+        DeclareLaunchArgument(
+            'sa_front_overview_image_saver_script',
+            default_value=PathJoinSubstitution([FindPackageShare('fr3_husky_controller'), 'scripts', 'save_sa_front_overview_image.py']),
+            description='Path to the SA front overview image saver script',
         ),
         OpaqueFunction(function=_launch_setup),
     ])

@@ -305,7 +305,8 @@ int findNextImageIndex(const std::filesystem::path& directory, const std::string
 
 std::string deriveTaskNameFromScenePath(const std::string& xacro_path)
 {
-    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos) return "threading";
+    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos ||
+        xacro_path.find("dual_fr3_husky_threading_y.xml.xacro") != std::string::npos) return "threading";
     if (xacro_path.find("dual_fr3_husky_threepieceassembly.xml.xacro") != std::string::npos) return "threepieceassembly";
     if (xacro_path.find("dual_fr3_husky_square.xml.xacro") != std::string::npos) return "square";
     if (xacro_path.find("dual_fr3_husky_coffee.xml.xacro") != std::string::npos) return "coffee";
@@ -725,7 +726,28 @@ void SAAppleVisionPro::refreshRuntimeConfigFromParameters()
     }
 
     image_task_name_ = node_->get_parameter(kTaskNameParam).as_string();
-    ft_axis_name_ = node_->get_parameter(kAxisNameParam).as_string();
+
+    const auto axis_param = node_->get_parameter(kAxisNameParam);
+    if (axis_param.get_type() == rclcpp::ParameterType::PARAMETER_STRING)
+    {
+        ft_axis_name_ = axis_param.as_string();
+    }
+    else if (axis_param.get_type() == rclcpp::ParameterType::PARAMETER_BOOL)
+    {
+        // YAML can coerce bare `y` into bool true at launch time.
+        // Treat that specific case as axis name "y" instead of failing activation.
+        ft_axis_name_ = axis_param.as_bool() ? "y" : "false";
+        RCLCPP_WARN(
+            node_->get_logger(),
+            "[%s] Parameter '%s' arrived as bool; coerced to axis name '%s'.",
+            name_.c_str(),
+            kAxisNameParam,
+            ft_axis_name_.c_str());
+    }
+    else
+    {
+        throw std::runtime_error("sa_axis_name must be a string or bool-coerced 'y'.");
+    }
 
     const auto startup_weld_offset = node_->get_parameter(kStartupWeldOffsetParam).as_double_array();
     if (startup_weld_offset.size() == 3)

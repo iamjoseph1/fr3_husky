@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import random
 
 import rclpy
 from rclpy.action import ActionClient
@@ -15,12 +16,42 @@ from fr3_husky_msgs.action import TaskMove
 
 PREDEFINED_TASK_RIGHT_POSES = {
     'threading_x': [0.798, -0.267, 0.761],
+    'threading_y': [0.810, -0.389, 0.820],
     'threading_z': [0.801, -0.294, 0.756],
     'square_x': [0.87, -0.210, 0.834],
     'square_z': [0.857, -0.222, 0.838],
     'threepiece_x': [0.816, -0.256, 0.871],
     'threepiece_z': [0.806, -0.250, 0.871],
 }
+
+TASK_POSITION_NOISE_BOUNDS = {
+    'threading': 0.0038,
+    'assembly': 0.0030,
+    'square': 0.00255,
+}
+
+
+def infer_task_family(task_name):
+    if task_name.startswith('threading'):
+        return 'threading'
+    if task_name.startswith('threepiece'):
+        return 'assembly'
+    if task_name.startswith('square'):
+        return 'square'
+    return None
+
+
+def add_task_position_noise(task_name, pose):
+    task_family = infer_task_family(task_name)
+    if task_family is None:
+        return list(pose)
+
+    bound = TASK_POSITION_NOISE_BOUNDS[task_family]
+    noisy_pose = list(pose)
+    noisy_pose[0] += random.uniform(-bound, bound)
+    noisy_pose[1] += random.uniform(-bound, bound)
+    noisy_pose[2] += random.uniform(-bound, bound)
+    return noisy_pose
 
 
 def make_pose_stamped(pose, frame_id='world'):
@@ -190,7 +221,7 @@ def main(args=None):
     parser.add_argument('--left-pose', type=float, nargs='+', default=[0.10, 0.0, 0.0])
     parser.add_argument('--execution-time', type=float, default=3.0)
     parser.add_argument('--frame-id', default='odom')
-    parser.add_argument('--abs', action='store_true', dest='abs_target', help='Treat target poses as absolute global poses. Default is delta pose from current global EEF pose.')
+    parser.add_argument('--abs', action='store_true', dest='abs_target', help='Treat target poses as absolute global poses. Default is delta pose from current global EEF pose.') # 기본값은 상대위치
     parser.add_argument(
         '--task',
         choices=list(PREDEFINED_TASK_RIGHT_POSES.keys()),
@@ -202,7 +233,10 @@ def main(args=None):
     right_pose = cli_args.right_pose
     abs_target = cli_args.abs_target
     if cli_args.task is not None:
-        right_pose = PREDEFINED_TASK_RIGHT_POSES[cli_args.task]
+        right_pose = add_task_position_noise(
+            cli_args.task,
+            PREDEFINED_TASK_RIGHT_POSES[cli_args.task],
+        )
         abs_target = True
 
     run_task_move(

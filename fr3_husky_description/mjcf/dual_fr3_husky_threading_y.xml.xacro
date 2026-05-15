@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco xmlns:xacro="http://www.ros.org/wiki/xacro" model="fr3">
+
+    <!-- xacro includes -->
+    <xacro:include filename="$(find franka_description)/mjcf/robots/common/franka_multi_robot.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/robots/common/franka_robot.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/robots/common/franka_arm.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/robots/common/franka_arm_actuator.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/end_effectors/common/franka_hand.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/end_effectors/common/ee_with_one_link.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/end_effectors/common/franka_hand_actuator.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/robots/fr3/assets.xml.xacro" />
+    <xacro:include filename="$(find franka_description)/mjcf/end_effectors/franka_hand/assets.xml.xacro" />
+
+    <!-- mobile xacro includes -->
+    <xacro:include filename="$(find husky_description)/mjcf/wheel_actuator.xml.xacro" />
+    <xacro:include filename="$(find husky_description)/mjcf/sensors.xml.xacro" />
+    <xacro:include filename="$(find husky_description)/mjcf/husky_macro.xml.xacro" />
+    <xacro:include filename="$(find husky_description)/mjcf/assets.xml.xacro" />
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/roas_structure_assets.xml.xacro" />
+    
+    <!-- camera xacro includes -->
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/realsense_d435i.xml.xacro"/>
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/azure_kinect.xml.xacro"/>
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/threading_y_scene.xml.xacro"/>
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/d435i_assets.xml.xacro" />
+    <xacro:include filename="$(find fr3_husky_description)/mjcf/assets/azure_kinect_assets.xml.xacro" />
+
+    <!-- ============================================================= -->
+    <!-- Should an end-effector be mounted at the flange? -->
+    <xacro:arg name="hand" default="true" />
+
+    <!-- Attach RealSense D435i to both EEs? -->
+    <xacro:arg name="with_realsense" default="true"/>
+
+    <!-- Attach Azure Kinect to mobile base? -->
+    <xacro:arg name="with_azure" default="true"/>
+
+    <!-- RealSense D435i resolution -->
+    <xacro:arg name="d435i_color_width"  default="1280"/>
+    <xacro:arg name="d435i_color_height" default="720"/>
+    <xacro:arg name="d435i_depth_width"  default="848"/>
+    <xacro:arg name="d435i_depth_height" default="480"/>
+
+    <!-- Azure Kinect DK resolution -->
+    <xacro:arg name="azure_color_width"  default="1920"/>
+    <xacro:arg name="azure_color_height" default="1080"/>
+    <xacro:arg name="azure_depth_width"  default="640"/>
+    <xacro:arg name="azure_depth_height" default="576"/>
+    <!-- ============================================================= -->
+    <xacro:arg name="arm_id" default="fr3" />
+    <xacro:property name="arm_ids_str" value="fr3 fr3" />
+    <xacro:property name="robot_prefixes_list" value="${['left','right']}" />
+    <xacro:property name="robot_prefixes_str" value="${' '.join(robot_prefixes_list)}" />
+
+    <xacro:property name="xyzs_str"
+                    value="0.345 0.215 0.26;0.345 -0.215 0.26" />
+    <xacro:property name="rpys_str"
+                    value="0 0 0.523598776;0 0 -0.523598776" />
+
+    <xacro:arg name="control_mode" default="effort" />
+
+    <xacro:property name="ee2cam_left_tf"
+                    value="${xacro.load_yaml('$(find fr3_husky_description)/config/TF_ee2cam_left.yaml')}" />
+    <xacro:property name="ee2cam_right_tf"
+                    value="${xacro.load_yaml('$(find fr3_husky_description)/config/TF_ee2cam_right.yaml')}" />
+    <xacro:property name="base2cam_tf"
+                    value="${xacro.load_yaml('$(find fr3_husky_description)/config/TF_base2cam.yaml')}" />
+
+    <xacro:macro name="dual_fr3_husky_arm"
+                 params="arm_prefix connected_to xyz rpy ee2cam_tf">
+        <xacro:franka_robot
+            arm_id="$(arg arm_id)"
+            arm_prefix="${arm_prefix}"
+            no_prefix="false"
+            connected_to="${connected_to}"
+            xyz="${xyz}"
+            rpy="${rpy}"
+            joint_limits="${xacro.load_yaml('$(find franka_description)/mjcf/robots/fr3/joint_limits.yaml')}"
+            kinematics="${xacro.load_yaml('$(find franka_description)/mjcf/robots/fr3/kinematics.yaml')}"
+            inertials="${xacro.load_yaml('$(find franka_description)/mjcf/robots/fr3/inertials.yaml')}"
+            dynamics="${xacro.load_yaml('$(find franka_description)/mjcf/robots/fr3/dynamics.yaml')}"
+            accelerometer_config="${xacro.load_yaml('$(find franka_description)/mjcf/robots/fr3/accelerometers.yaml')}"
+            hand="$(arg hand)"
+            ee_id="franka_hand"
+            xyz_ee="0 0 0"
+            rpy_ee="0 0 ${-pi/4}"
+            tcp_xyz="0 0 0.1034"
+            tcp_rpy="0 0 0"
+            link0_vis_mesh_indices="[0,1,2,3,4,5,6]"
+            link1_vis_mesh_indices="[0]"
+            link2_vis_mesh_indices="[0]"
+            link3_vis_mesh_indices="[0,1]"
+            link4_vis_mesh_indices="[0,1]"
+            link5_vis_mesh_indices="[0,1,2]"
+            link6_vis_mesh_indices="[0,1,2,3,4,5,6,7]"
+            link7_vis_mesh_indices="[0,1,2,3]"
+            link0_vis_mesh_materials="['black','white','white','white','white','red','black']"
+            link1_vis_mesh_materials="['white']"
+            link2_vis_mesh_materials="['white']"
+            link3_vis_mesh_materials="['white','black']"
+            link4_vis_mesh_materials="['white','black']"
+            link5_vis_mesh_materials="['white','white','black']"
+            link6_vis_mesh_materials="['button_green','white','white','gray','button_red','white','black','button_blue']"
+            link7_vis_mesh_materials="['black','white','white','black']"
+            hand_vis_mesh_indices="[0,1,2,3,4]"
+            finger_vis_mesh_indices="[0,1]"
+            hand_vis_mesh_materials="['off_white','black','black','white','off_white']"
+            finger_vis_mesh_materials="['off_white','black']">
+            <cam_body>
+                <body name="${arm_prefix}_fr3_hand_tcp" pos="0 0 0.1034">
+                    <site name="${arm_prefix}_fr3_hand_tcp_ft_site" pos="0 0 0" size="0.003" rgba="0 1 0 0.2"/>
+                </body>
+                <xacro:if value="$(arg with_realsense)">
+                    <xacro:realsense_d435i_mjcf prefix="${arm_prefix}" ee2cam_tf="${ee2cam_tf}"
+                        color_width="$(arg d435i_color_width)"
+                        color_height="$(arg d435i_color_height)"
+                        depth_width="$(arg d435i_depth_width)"
+                        depth_height="$(arg d435i_depth_height)"/>
+                </xacro:if>
+            </cam_body>
+        </xacro:franka_robot>
+    </xacro:macro>
+
+    <!-- ── Compiler ── -->
+    <compiler angle="radian" autolimits="true" />
+
+    <!-- ── Option ── -->
+    <option timestep="0.001" integrator="implicitfast" />
+
+    <!-- ── Visual ── -->
+    <visual>
+        <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1" />
+        <rgba haze="0.15 0.25 0.35 1" />
+        <global azimuth="150" elevation="-20" />
+    </visual>
+
+    <!-- Default classes -->
+    <default>
+        <default class="$(arg arm_id)">
+            <joint armature="0.1" damping="1"/>
+            <position inheritrange="1"/>
+            <default class="visual">
+                <geom type="mesh" group="2" contype="0" conaffinity="0"/>
+            </default>
+            <default class="finger">
+                <joint axis="0 1 0" type="slide" range="0 0.04"/>
+            </default>
+            <default class="collision">
+                <geom type="mesh" group="3" mass="0" density="0"/>
+            </default>
+            <site size="0.001" rgba="0.5 0.5 0.5 0.3" group="4"/>
+        </default>
+        <default class="husky">
+            <material specular="0.5" shininess="0.25"/>
+            <joint armature="0.1" damping="1"/>
+            <position inheritrange="1"/>
+            <site size="0.001" rgba="0.5 0.5 0.5 0.3" group="4"/>
+        </default>
+    </default>
+
+    <!-- ── Assets ── -->
+    <asset>
+        <!-- textures / ground material -->
+        <texture type="skybox" builtin="gradient" rgb1=".9 .9 1." rgb2=".2 .3 .4" width="256" height="256" />
+        <texture file="$(find fr3_husky_description)/textures/light-gray-floor-tile.png" type="2d" name="texplane"/>
+        <material name="floorplane" reflectance="0.01" shininess="0.0" specular="0.0" texrepeat="2 2" texture="texplane" texuniform="true"/>
+        <texture file="$(find fr3_husky_description)/textures/ceramic.png" type="cube" name="tex-ceramic"/>
+        <material name="table_ceramic" reflectance="0.0" shininess="0.0" specular="0.2" texrepeat="1 1" texture="tex-ceramic"/>
+        <texture file="$(find fr3_husky_description)/textures/steel-brushed.png" type="cube" name="tex-steel-brushed"/>
+        <material name="table_legs_metal" reflectance="0.8" shininess="0.8" texrepeat="1 1" texture="tex-steel-brushed"/>
+        <texture file="$(find fr3_husky_description)/textures/light-gray-plaster.png" type="2d" name="tex-light-gray-plaster"/>
+        <material name="walls_mat" reflectance="0.0" shininess="0.1" specular="0.1" texrepeat="3 3" texture="tex-light-gray-plaster" texuniform="true"/>
+        <material name="env_red" rgba="1 0.072272 0.039546 1" />
+        <material name="env_blue" rgba="0.024157 0.445201 0.737911 1" />
+        <material name="ring_gray" rgba="0.85 0.85 0.85 1" />
+        <mesh name="bowl_mesh" file="$(find fr3_husky_description)/meshes/cup_nohandle.stl" scale="1.2 1.2 0.05" />
+
+        <xacro:fr3_assets arm_id="$(arg arm_id)"/>
+        <xacro:franka_hand_assets/>
+        <xacro:husky_assets/>
+        <xacro:roas_structure_assets/>
+        <xacro:if value="$(arg with_realsense)">
+            <xacro:d435i_assets/>
+        </xacro:if>
+        <xacro:if value="$(arg with_azure)">
+            <xacro:azure_kinect_assets/>
+        </xacro:if>
+    </asset>
+
+    <!-- ── Worldbody ── -->
+    <worldbody>
+        <!-- ground plane -->
+        <geom name="floor" type="plane" size="0 0 0.05" material="floorplane" />
+        <camera name="front_overview"
+                mode="fixed"
+                pos="1.15 -0.25 1.15"
+                euler="0 0.9 1.57" 
+                fovy="55"
+                resolution="640 480" />
+        <xacro:threading_y_scene/>
+
+        <body name="root" pos="0 0 0">
+            <joint name="world_joint" type="free" stiffness="0" damping="0" frictionloss="0" armature="0" />
+            <xacro:husky prefix="" as_two_wheels="false">
+                <additional_comp>
+                    <body name="top_structure_link" pos="0 0 0.248">
+                        <inertial pos="-0.108 0 0.252" mass="36.436" fullinertia="6.35 7.648 3.775 0.001 1.711 -0.004" />
+                        <geom class="visual" pos="0 0 0" type="mesh" mesh="ROAS_structure" rgba="0.231 0.231 0.231 1.0"/>
+                        <geom class="collision" pos="0 0 0.006" type="box" size="${0.90/2} ${0.65/2} ${0.012/2}" />
+                        <geom class="collision" pos="-0.28 0 0.65" type="box" size="${0.32/2} ${0.56/2} ${1.3/2}" />
+                    </body>
+
+                    <xacro:dual_fr3_husky_arm arm_prefix="left"
+                                              connected_to="left_tmp_base"
+                                              xyz="0.345 0.215 0.26"
+                                              rpy="0 0 0.523598776"
+                                              ee2cam_tf="${ee2cam_left_tf}"/>
+                    <xacro:dual_fr3_husky_arm arm_prefix="right"
+                                              connected_to="right_tmp_base"
+                                              xyz="0.345 -0.215 0.26"
+                                              rpy="0 0 -0.523598776"
+                                              ee2cam_tf="${ee2cam_right_tf}"/>
+
+                    <xacro:if value="$(arg with_azure)">
+                        <xacro:azure_kinect_mjcf prefix="top" base2cam_tf="${base2cam_tf}"
+                            color_width="$(arg azure_color_width)"
+                            color_height="$(arg azure_color_height)"
+                            depth_width="$(arg azure_depth_width)"
+                            depth_height="$(arg azure_depth_height)"/>
+                    </xacro:if>
+
+                </additional_comp>
+            </xacro:husky>
+        </body>
+    </worldbody>
+
+    <equality>
+        <weld name="weld_right_tcp" body1="right_fr3_hand_tcp" body2="obj"
+              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+        <weld name="weld_left_tcp" body1="left_fr3_hand_tcp" body2="obj"
+              active="false" solref="0.02 1" solimp="0.9 0.95 0.001"/>
+    </equality>
+
+    <sensor>
+        <force name="right_fr3_hand_tcp_force" site="right_fr3_hand_tcp_ft_site"/>
+        <torque name="right_fr3_hand_tcp_torque" site="right_fr3_hand_tcp_ft_site"/>
+    </sensor>
+
+    <!-- Wheel actuators -->
+    <xacro:husky_wheel_actuator prefix="" as_two_wheels="false"/>
+
+    <xacro:include filename="$(find husky_description)/mjcf/sensors.xml.xacro" />
+
+    <!-- Arm actuators (left + right) -->
+    <xacro:franka_arm_actuator arm_id="$(arg arm_id)" arm_prefix="left" no_prefix="false" control_mode="$(arg control_mode)" />
+    <xacro:franka_arm_actuator arm_id="$(arg arm_id)" arm_prefix="right" no_prefix="false" control_mode="$(arg control_mode)" />
+
+    <!-- Hand actuators (left + right) -->
+    <xacro:if value="${'$(arg hand)' == 'true'}">
+        <xacro:franka_hand_actuator arm_id="$(arg arm_id)" arm_prefix="left" />
+        <xacro:franka_hand_actuator arm_id="$(arg arm_id)" arm_prefix="right" />
+    </xacro:if>
+
+</mujoco>

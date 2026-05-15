@@ -133,7 +133,8 @@ void maybeRandomizeSceneSpawn(
     bool changed = false;
     double applied_yaw_deg = 0.0;
 
-    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos)
+    if (xacro_path.find("dual_fr3_husky_threading.xml.xacro") != std::string::npos ||
+        xacro_path.find("dual_fr3_husky_threading_y.xml.xacro") != std::string::npos)
     {
         constexpr double kThreadingSceneSpawnMaxYawDeg = 0.0;
         const double yaw_rad = sampleYawRadiansFromDegreeLimit(kThreadingSceneSpawnMaxYawDeg);
