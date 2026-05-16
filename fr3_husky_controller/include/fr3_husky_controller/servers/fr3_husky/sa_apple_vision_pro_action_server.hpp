@@ -132,8 +132,10 @@ private:
 
     // tracking state
     bool auto_tracking_started_ = false;
+    bool right_tracking_paused_{false};
     std::array<bool, NUM_TRACKERS> tracker_pose_valid_{{false, false, false}};
     double avp_tracking_enable_delay_ = 5.0;
+    Eigen::VectorXd q_hold_mani_;
 
     Eigen::Affine3d world_from_base_init_{Eigen::Affine3d::Identity()};
     Eigen::Affine3d world_from_base_cur_{Eigen::Affine3d::Identity()};
@@ -186,6 +188,7 @@ private:
     std::string image_task_name_{"square"};
     std::string ft_axis_name_{"x"};
     Eigen::Vector3d startup_weld_offset_{Eigen::Vector3d(0.0, 0.0, 0.05)};
+    bool continuous_front_overview_publish_{false};
     std::string image_save_directory_;
     int next_image_save_index_{0};
     int64_t last_image_save_time_ns_{0};

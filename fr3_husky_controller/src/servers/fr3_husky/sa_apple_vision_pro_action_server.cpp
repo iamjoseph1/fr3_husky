@@ -709,6 +709,7 @@ void SAAppleVisionPro::refreshRuntimeConfigFromParameters()
     constexpr const char* kTaskNameParam = "sa_task_name";
     constexpr const char* kAxisNameParam = "sa_axis_name";
     constexpr const char* kStartupWeldOffsetParam = "sa_startup_weld_offset";
+    constexpr const char* kContinuousFrontOverviewPublishParam = "sa_continuous_front_overview_publish";
 
     if (!node_->has_parameter(kTaskNameParam))
     {
@@ -723,6 +724,10 @@ void SAAppleVisionPro::refreshRuntimeConfigFromParameters()
         node_->declare_parameter<std::vector<double>>(
             kStartupWeldOffsetParam,
             {startup_weld_offset_.x(), startup_weld_offset_.y(), startup_weld_offset_.z()});
+    }
+    if (!node_->has_parameter(kContinuousFrontOverviewPublishParam))
+    {
+        node_->declare_parameter<bool>(kContinuousFrontOverviewPublishParam, continuous_front_overview_publish_);
     }
 
     image_task_name_ = node_->get_parameter(kTaskNameParam).as_string();
@@ -762,6 +767,9 @@ void SAAppleVisionPro::refreshRuntimeConfigFromParameters()
                     name_.c_str(),
                     kStartupWeldOffsetParam);
     }
+
+    continuous_front_overview_publish_ =
+        node_->get_parameter(kContinuousFrontOverviewPublishParam).as_bool();
 }
 
 bool SAAppleVisionPro::acceptGoal(const ActionT::Goal& goal)
@@ -837,12 +845,14 @@ void SAAppleVisionPro::onStart()
 
     // tracking state
     auto_tracking_started_ = false;
+    right_tracking_paused_ = false;
     tracker_pose_valid_.fill(false);
 
     ee_data_.clear();
     waiting_for_jtc_.store(false, std::memory_order_relaxed);
     control_start_time_ = -1.0; // sentinel: set on first compute() call
     q_init_for_home_ = fr3_husky_model_updater_.q_total_;
+    q_hold_mani_ = fr3_husky_model_updater_.q_total_;
     right_constraint_orientation_locked_ = false;
     right_constraint_anchor_pose_locked_ = false;
     front_overview_save_enabled_.store(false, std::memory_order_relaxed);
@@ -988,6 +998,53 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
 
     // Gripper control / right-constraint toggle
     {
+        if (!prev_gesture_states_[IDX_LEFT_CON][IDX_PINCH_GESTURE] &&
+            gesture_states_local[IDX_LEFT_CON][IDX_PINCH_GESTURE] &&
+            !right_controller_ee_name_.empty())
+        {
+            const bool head_tracker_valid =
+                tracker_pose_valid_.size() == NUM_TRACKERS &&
+                tracker_pose_valid_[IDX_HEAD_CON];
+            const bool right_tracker_valid =
+                head_tracker_valid && tracker_pose_valid_[IDX_RIGHT_CON];
+
+            if (is_tracking_mode_on_[IDX_RIGHT_CON])
+            {
+                is_tracking_mode_on_[IDX_RIGHT_CON] = false;
+                right_tracking_paused_ = true;
+                q_hold_mani_ = fr3_husky_model_updater_.q_total_;
+                prev_target_right_ = ee_data_[right_controller_ee_name_].x;
+                is_first_target_right_ = false;
+                ee_data_[right_controller_ee_name_].x_desired = ee_data_[right_controller_ee_name_].x;
+                ee_data_[right_controller_ee_name_].xdot_desired.setZero();
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Left pinch detected -> paused right-hand tracking and holding current right EEF pose",
+                    name_.c_str());
+            }
+            else if (right_tracker_valid)
+            {
+                controller_poses_init_[IDX_RIGHT_CON] = controller_poses_local[IDX_RIGHT_CON];
+                controller_poses_init_[IDX_HEAD_CON] = controller_poses_local[IDX_HEAD_CON];
+                ee_data_[right_controller_ee_name_].setInit();
+                prev_target_right_ = ee_data_[right_controller_ee_name_].x;
+                is_first_target_right_ = true;
+                is_tracking_mode_on_[IDX_RIGHT_CON] = true;
+                right_tracking_paused_ = false;
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Left pinch detected -> resumed right-hand tracking with a new hand/head reference",
+                    name_.c_str());
+            }
+            else
+            {
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] Left pinch detected but right-hand tracking could not resume because the right/head tracker is invalid",
+                    name_.c_str());
+            }
+        }
+
         if (!prev_gesture_states_[IDX_RIGHT_CON][IDX_PINCH_GESTURE] &&
             gesture_states_local[IDX_RIGHT_CON][IDX_PINCH_GESTURE])
         {
@@ -1036,14 +1093,17 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 const int64_t now_ns = node_->now().nanoseconds();
                 front_overview_save_enabled_.store(true, std::memory_order_relaxed);
                 front_overview_save_log_pending_.store(true, std::memory_order_relaxed);
-                front_overview_publish_until_ns_ = now_ns + 2000000000LL;
+                front_overview_publish_until_ns_ =
+                    continuous_front_overview_publish_ ? 0 : (now_ns + 2000000000LL);
                 {
                     std::lock_guard<std::mutex> lock(ft_log_mutex_);
                     vlm_inference_triggered_for_ft_ = true;
                 }
                 RCLCPP_INFO(
                     node_->get_logger(),
-                    "[%s] Left doubletap detected -> publishing resized front_overview images for 2 seconds",
+                    continuous_front_overview_publish_
+                        ? "[%s] Left doubletap detected -> publishing resized front_overview images continuously"
+                        : "[%s] Left doubletap detected -> publishing resized front_overview images for 2 seconds",
                     name_.c_str());
             }
         }
@@ -1393,16 +1453,28 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 prev_target_right_ = smooth_target;
                 ee_data_[right_controller_ee_name_].x_desired = smooth_target;
                 ee_data_[right_controller_ee_name_].xdot_desired  = target_vel;
-                }
+            }
+            else
+            {
+                ee_data_[right_controller_ee_name_].x_desired = ee_data_[right_controller_ee_name_].x;
+                ee_data_[right_controller_ee_name_].xdot_desired.setZero();
+                prev_target_right_ = ee_data_[right_controller_ee_name_].x;
+                is_first_target_right_ = false;
             }
         }
-    
+        
         bool is_qp_solved = true;
         std::string time_verbose = "";
+        const bool use_idle_hold = (!auto_tracking_started_) || right_tracking_paused_;
 
         Eigen::VectorXd qdot_mobile = Eigen::VectorXd::Zero(fr3_husky_model_updater_.mobile_dof_);
 
-        switch (control_mode_)
+        if (use_idle_hold)
+        {
+            fr3_husky_model_updater_.wheel_vel_desired_.setZero();
+            fr3_husky_model_updater_.haltCommands();
+        }
+        else switch (control_mode_)
         {
             case 0: // CLIK
                 {   
@@ -1538,8 +1610,12 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
                 break;
         }
 
-        fr3_husky_model_updater_.writeCommand(fr3_husky_model_updater_.torque_desired_total_ - fr3_husky_model_updater_.g_total_,
-            fr3_husky_model_updater_.wheel_vel_desired_);  // robot_controller automatically add gravity force
+        if (!use_idle_hold)
+        {
+            fr3_husky_model_updater_.writeCommand(
+                fr3_husky_model_updater_.torque_desired_total_ - fr3_husky_model_updater_.g_total_,
+                fr3_husky_model_updater_.wheel_vel_desired_);  // robot_controller automatically add gravity force
+        }
 
         bool ft_logging_active = false;
         {
@@ -1579,6 +1655,7 @@ SAAppleVisionPro::ComputeResult SAAppleVisionPro::compute(const rclcpp::Time& ti
     
         return ComputeResult::RUNNING;
     }
+}
 
 void SAAppleVisionPro::onStop(StopReason reason)
 {
@@ -1756,10 +1833,11 @@ void SAAppleVisionPro::subFrontOverviewImageCallback(const sensor_msgs::msg::Ima
         front_overview_save_enabled_.store(false, std::memory_order_relaxed);
         return;
     }
-
     {
         std::lock_guard<std::mutex> lock(front_overview_save_mutex_);
-        if (last_image_save_time_ns_ != 0 && (now_ns - last_image_save_time_ns_) < 2000000000LL)
+        const int64_t publish_period_ns =
+            continuous_front_overview_publish_ ? 1000000000LL : 2000000000LL;
+        if (last_image_save_time_ns_ != 0 && (now_ns - last_image_save_time_ns_) < publish_period_ns)
         {
             return;
         }

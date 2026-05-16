@@ -247,6 +247,7 @@ def _launch_setup(context, *args, **kwargs):
         'sa_task_name': ParameterValue(task_name, value_type=str),
         'sa_axis_name': ParameterValue(axis_name, value_type=str),
         'sa_startup_weld_offset': startup_weld_offset,
+        'sa_continuous_front_overview_publish': ParameterValue(save_image, value_type=bool),
     }]
     if use_mujoco.lower() == 'true':
         xacro_args = f' hand:={load_gripper}'

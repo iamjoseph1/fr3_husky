@@ -13,6 +13,15 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 
+def _default_output_dir() -> Path:
+    script_path = Path(__file__).resolve()
+    for parent in script_path.parents:
+        repo_scripts_dir = parent / "src" / "fr3_husky" / "fr3_husky_controller" / "scripts"
+        if repo_scripts_dir.is_dir():
+            return repo_scripts_dir / "pub_image"
+    return script_path.parent / "pub_image"
+
+
 def _depth_to_bgr(depth: np.ndarray) -> np.ndarray:
     finite = np.isfinite(depth)
     positive = finite & (depth > 0.0)
@@ -79,36 +88,28 @@ class SAFrontOverviewImageSaver(Node):
     def __init__(self) -> None:
         super().__init__("sa_front_overview_image_saver")
 
-        default_output_dir = Path(__file__).resolve().parent / "pub_image"
+        default_output_dir = _default_output_dir()
 
-        self.declare_parameter("image_topic", "/mujoco_ros_hardware/front_overview/color/image_raw")
-        self.declare_parameter("trigger_topic", "/sa_front_overview/image_raw")
+        self.declare_parameter("image_topic", "/sa_front_overview/image_raw")
         self.declare_parameter("output_dir", str(default_output_dir))
         self.declare_parameter("save_period_sec", 1.0)
-        self.declare_parameter("trigger_timeout_sec", 2.0)
 
         self.image_topic = str(self.get_parameter("image_topic").value)
-        self.trigger_topic = str(self.get_parameter("trigger_topic").value)
         self.output_dir = Path(str(self.get_parameter("output_dir").value))
         self.save_period_sec = float(self.get_parameter("save_period_sec").value)
-        self.trigger_timeout_sec = float(self.get_parameter("trigger_timeout_sec").value)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.Lock()
         self._latest_image = None
         self._latest_stamp_ns = None
-        self._save_enabled_until_ns = 0
 
         self.create_subscription(Image, self.image_topic, self._image_callback, qos_profile_sensor_data)
-        self.create_subscription(Image, self.trigger_topic, self._trigger_callback, qos_profile_sensor_data)
         self.create_timer(self.save_period_sec, self._save_latest_image)
 
         self.get_logger().info(f"Subscribing camera topic: {self.image_topic}")
-        self.get_logger().info(f"Subscribing trigger topic: {self.trigger_topic}")
         self.get_logger().info(f"Saving images to: {self.output_dir}")
         self.get_logger().info(f"Save period: {self.save_period_sec:.2f} sec")
-        self.get_logger().info(f"Trigger timeout: {self.trigger_timeout_sec:.2f} sec")
 
     def _image_callback(self, msg: Image) -> None:
         try:
@@ -122,18 +123,9 @@ class SAFrontOverviewImageSaver(Node):
             self._latest_image = image
             self._latest_stamp_ns = stamp_ns
 
-    def _trigger_callback(self, msg: Image) -> None:
-        del msg
-        now_ns = self.get_clock().now().nanoseconds
-        with self._lock:
-            self._save_enabled_until_ns = now_ns + int(self.trigger_timeout_sec * 1_000_000_000)
-
     def _save_latest_image(self) -> None:
         with self._lock:
             if self._latest_image is None:
-                return
-            now_ns = self.get_clock().now().nanoseconds
-            if now_ns > self._save_enabled_until_ns:
                 return
             image = self._latest_image.copy()
             stamp_ns = self._latest_stamp_ns
@@ -145,7 +137,9 @@ class SAFrontOverviewImageSaver(Node):
             filename = self.output_dir / f"sa_front_overview_{timestamp}_{stamp_ns}.png"
 
         if cv2.imwrite(str(filename), image):
-            self.get_logger().info(f"Saved image: {filename.name}")
+            self.get_logger().info(
+                f"Saved image: {filename.name}"
+            )
         else:
             self.get_logger().error(f"Failed to save image: {filename}")
 
