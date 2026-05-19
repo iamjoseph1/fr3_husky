@@ -1,8 +1,18 @@
 #include <fr3_husky_controller/servers/fr3/sa_vive_tracker_action_server.hpp>
 
+#include <arpa/inet.h>
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <fcntl.h>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <sys/socket.h>
+#include <unistd.h>
 
 namespace fr3_husky_controller::servers::fr3
 {
@@ -91,49 +101,6 @@ Eigen::Matrix3d buildConstrainedOrientation(
     return constrained_relative_world * locked_orientation;
 }
 
-sensor_msgs::msg::Image resizeImageNearest(
-    const sensor_msgs::msg::Image& src,
-    const uint32_t target_width,
-    const uint32_t target_height)
-{
-    sensor_msgs::msg::Image dst;
-    if (src.width == 0 || src.height == 0 || src.step == 0 || src.data.empty() ||
-        target_width == 0 || target_height == 0)
-    {
-        return dst;
-    }
-
-    const uint32_t bytes_per_pixel = src.step / src.width;
-    if (bytes_per_pixel == 0)
-    {
-        return dst;
-    }
-
-    dst = src;
-    dst.width = target_width;
-    dst.height = target_height;
-    dst.step = target_width * bytes_per_pixel;
-    dst.data.resize(static_cast<size_t>(dst.step) * dst.height);
-
-    for (uint32_t y = 0; y < target_height; ++y)
-    {
-        const uint32_t src_y = (y * src.height) / target_height;
-        for (uint32_t x = 0; x < target_width; ++x)
-        {
-            const uint32_t src_x = (x * src.width) / target_width;
-            const size_t src_offset =
-                static_cast<size_t>(src_y) * src.step + static_cast<size_t>(src_x) * bytes_per_pixel;
-            const size_t dst_offset =
-                static_cast<size_t>(y) * dst.step + static_cast<size_t>(x) * bytes_per_pixel;
-            std::copy_n(src.data.begin() + static_cast<std::ptrdiff_t>(src_offset),
-                        bytes_per_pixel,
-                        dst.data.begin() + static_cast<std::ptrdiff_t>(dst_offset));
-        }
-    }
-
-    return dst;
-}
-
 }  // namespace
 
 SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, ModelUpdaterBase& model_updater)
@@ -143,17 +110,87 @@ SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, Model
     pose_sub_         = node_->create_subscription<geometry_msgs::msg::PoseArray>("tracker_pose", 1, std::bind(&SAViveTracker::subPoseCallback, this, std::placeholders::_1));
     l_joy_sub_ = node_->create_subscription<sensor_msgs::msg::Joy>("lhand_joy", 1, std::bind(&SAViveTracker::subLJoyCallback, this, std::placeholders::_1));
     r_joy_sub_ = node_->create_subscription<sensor_msgs::msg::Joy>("rhand_joy", 1, std::bind(&SAViveTracker::subRJoyCallback, this, std::placeholders::_1));
-    right_constraint_sub_ = node_->create_subscription<std_msgs::msg::Float64MultiArray>(
-        "sa_right_eef_constraint",
-        rclcpp::QoS(1).best_effort(),
-        std::bind(&SAViveTracker::subRightConstraintCallback, this, std::placeholders::_1));
-    front_overview_image_sub_ = node_->create_subscription<sensor_msgs::msg::Image>(
-        "/mujoco_ros_hardware/front_overview/color/image_raw",
-        rclcpp::SensorDataQoS(),
-        std::bind(&SAViveTracker::subFrontOverviewImageCallback, this, std::placeholders::_1));
-    front_overview_image_pub_ = node_->create_publisher<sensor_msgs::msg::Image>(
-        "sa_front_overview/image_raw",
-        rclcpp::QoS(1).best_effort());
+
+    front_overview_trigger_udp_ip_ =
+        node_->declare_parameter<std::string>("sa_front_overview_trigger_udp_ip", front_overview_trigger_udp_ip_);
+    front_overview_trigger_udp_port_ =
+        node_->declare_parameter<int>("sa_front_overview_trigger_udp_port", front_overview_trigger_udp_port_);
+    front_overview_trigger_udp_value_ =
+        node_->declare_parameter<bool>("sa_front_overview_trigger_udp_value", front_overview_trigger_udp_value_);
+    right_constraint_udp_bind_ip_ =
+        node_->declare_parameter<std::string>("sa_right_eef_constraint_udp_bind_ip", right_constraint_udp_bind_ip_);
+    right_constraint_udp_bind_port_ =
+        node_->declare_parameter<int>("sa_right_eef_constraint_udp_bind_port", right_constraint_udp_bind_port_);
+
+    front_overview_trigger_udp_sock_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (front_overview_trigger_udp_sock_ < 0)
+    {
+        RCLCPP_ERROR(
+            node_->get_logger(),
+            "[%s] Failed to create UDP trigger socket: %s",
+            name_.c_str(),
+            std::strerror(errno));
+    }
+
+    right_constraint_udp_sock_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (right_constraint_udp_sock_ < 0)
+    {
+        RCLCPP_ERROR(
+            node_->get_logger(),
+            "[%s] Failed to create UDP constraint socket: %s",
+            name_.c_str(),
+            std::strerror(errno));
+    }
+    else
+    {
+        const int current_flags = ::fcntl(right_constraint_udp_sock_, F_GETFL, 0);
+        if (current_flags >= 0)
+        {
+            (void)::fcntl(right_constraint_udp_sock_, F_SETFL, current_flags | O_NONBLOCK);
+        }
+
+        sockaddr_in bind_addr{};
+        bind_addr.sin_family = AF_INET;
+        bind_addr.sin_port = htons(static_cast<uint16_t>(right_constraint_udp_bind_port_));
+        if (::inet_pton(AF_INET, right_constraint_udp_bind_ip_.c_str(), &bind_addr.sin_addr) != 1)
+        {
+            RCLCPP_ERROR(
+                node_->get_logger(),
+                "[%s] Invalid sa_right_eef_constraint_udp_bind_ip: %s",
+                name_.c_str(),
+                right_constraint_udp_bind_ip_.c_str());
+            ::close(right_constraint_udp_sock_);
+            right_constraint_udp_sock_ = -1;
+        }
+        else if (::bind(
+                     right_constraint_udp_sock_,
+                     reinterpret_cast<const sockaddr*>(&bind_addr),
+                     sizeof(bind_addr)) != 0)
+        {
+            RCLCPP_ERROR(
+                node_->get_logger(),
+                "[%s] Failed to bind UDP constraint socket on %s:%d: %s",
+                name_.c_str(),
+                right_constraint_udp_bind_ip_.c_str(),
+                right_constraint_udp_bind_port_,
+                std::strerror(errno));
+            ::close(right_constraint_udp_sock_);
+            right_constraint_udp_sock_ = -1;
+        }
+    }
+
+    if (right_constraint_udp_sock_ >= 0)
+    {
+        right_constraint_udp_poll_timer_ = node_->create_wall_timer(
+            std::chrono::milliseconds(5),
+            std::bind(&SAViveTracker::pollRightConstraintUdp, this));
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "[%s] Listening for UDP right constraint on %s:%d",
+            name_.c_str(),
+            right_constraint_udp_bind_ip_.c_str(),
+            right_constraint_udp_bind_port_);
+    }
 
     controller_poses_.assign(NUM_TRACKERS, Eigen::Affine3d::Identity());
     controller_poses_init_.assign(NUM_TRACKERS, Eigen::Affine3d::Identity());
@@ -210,6 +247,20 @@ SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, Model
     for(const auto& robot_name : model_updater_.robot_names_) fr3_model_updater_.GripperHoming(robot_name); 
 
     RCLCPP_INFO(node_->get_logger(), "[%s] ViveTracker created", name_.c_str());
+}
+
+SAViveTracker::~SAViveTracker()
+{
+    if (right_constraint_udp_sock_ >= 0)
+    {
+        ::close(right_constraint_udp_sock_);
+        right_constraint_udp_sock_ = -1;
+    }
+    if (front_overview_trigger_udp_sock_ >= 0)
+    {
+        ::close(front_overview_trigger_udp_sock_);
+        front_overview_trigger_udp_sock_ = -1;
+    }
 }
 
 bool SAViveTracker::acceptGoal(const ActionT::Goal& goal)
@@ -279,10 +330,6 @@ void SAViveTracker::onStart()
     waiting_for_jtc_.store(false, std::memory_order_relaxed);
     right_constraint_orientation_locked_ = false;
     right_constraint_anchor_pose_locked_ = false;
-    front_overview_publish_enabled_.store(false, std::memory_order_relaxed);
-    front_overview_publish_log_pending_.store(false, std::memory_order_relaxed);
-    last_front_overview_publish_time_ns_ = 0;
-    front_overview_publish_until_ns_ = 0;
 
     if(!left_controller_ee_name_.empty())
     {
@@ -388,17 +435,13 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
         if ((!prev_button_states_[IDX_LEFT_CON][IDX_B_BUTTON]  && button_states_local[IDX_LEFT_CON][IDX_B_BUTTON]) ||
             (!prev_button_states_[IDX_RIGHT_CON][IDX_B_BUTTON] && button_states_local[IDX_RIGHT_CON][IDX_B_BUTTON]))
         {
-            const int64_t now_ns = node_->now().nanoseconds();
-            front_overview_publish_enabled_.store(true, std::memory_order_relaxed);
-            front_overview_publish_log_pending_.store(true, std::memory_order_relaxed);
+            if (sendFrontOverviewTriggerUdp())
             {
-                std::lock_guard<std::mutex> lock(front_overview_publish_mutex_);
-                last_front_overview_publish_time_ns_ = 0;
-                front_overview_publish_until_ns_ = now_ns + 2000000000LL;
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[%s] B button pressed -> sent front_overview UDP trigger",
+                    name_.c_str());
             }
-            RCLCPP_INFO(node_->get_logger(),
-                        "[%s] B button pressed -> publishing resized front_overview images for 2 seconds",
-                        name_.c_str());
         }
 
         // Left controller
@@ -635,13 +678,6 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
 void SAViveTracker::onStop(StopReason reason)
 {
     model_updater_.haltCommands();
-    front_overview_publish_enabled_.store(false, std::memory_order_relaxed);
-    front_overview_publish_log_pending_.store(false, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> lock(front_overview_publish_mutex_);
-        last_front_overview_publish_time_ns_ = 0;
-        front_overview_publish_until_ns_ = 0;
-    }
 
     const char* reason_str = "none";
     if (reason == StopReason::CANCELED)
@@ -729,24 +765,8 @@ void SAViveTracker::subRJoyCallback(const sensor_msgs::msg::Joy::SharedPtr msg)
     }
 }
 
-void SAViveTracker::subRightConstraintCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+bool SAViveTracker::handleRightConstraintVector(const Eigen::Vector3d& constraint)
 {
-    if (msg->data.size() != 3)
-    {
-        RCLCPP_WARN(
-            node_->get_logger(),
-            "[%s] Size of Float64MultiArray for sa_right_eef_constraint (%ld) does not equal to 3.",
-            name_.c_str(),
-            msg->data.size());
-        return;
-    }
-
-    Eigen::Vector3d constraint = Eigen::Vector3d::Zero();
-    for (size_t i = 0; i < 3; ++i)
-    {
-        constraint(static_cast<Eigen::Index>(i)) = msg->data[i];
-    }
-
     std::lock_guard<std::mutex> lock(right_constraint_mutex_);
     const bool first_constraint = !right_constraint_received_;
     const bool changed = !right_constraint_received_ ||
@@ -771,48 +791,117 @@ void SAViveTracker::subRightConstraintCallback(const std_msgs::msg::Float64Multi
             right_constraint_anchor_pose_locked_ = false;
         }
     }
+    return true;
 }
 
-void SAViveTracker::subFrontOverviewImageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
+bool SAViveTracker::parseRightConstraintUdpPayload(
+    const uint8_t* data,
+    size_t size,
+    Eigen::Vector3d& constraint) const
 {
-    if (!front_overview_publish_enabled_.load(std::memory_order_relaxed))
+    if (!data || size != sizeof(double) * 3)
+    {
+        return false;
+    }
+
+    std::memcpy(constraint.data(), data, sizeof(double) * 3);
+    return true;
+}
+
+void SAViveTracker::pollRightConstraintUdp()
+{
+    if (right_constraint_udp_sock_ < 0)
     {
         return;
     }
 
-    auto resized = resizeImageNearest(*msg, 84, 84);
-    if (resized.step == 0 || resized.data.empty())
+    std::array<uint8_t, 512> buffer{};
+    while (true)
     {
-        return;
-    }
-
-    const int64_t now_ns = node_->now().nanoseconds();
-    {
-        std::lock_guard<std::mutex> lock(front_overview_publish_mutex_);
-        if (front_overview_publish_until_ns_ != 0 && now_ns > front_overview_publish_until_ns_)
+        const ssize_t recv_size = ::recvfrom(
+            right_constraint_udp_sock_,
+            buffer.data(),
+            buffer.size(),
+            0,
+            nullptr,
+            nullptr);
+        if (recv_size < 0)
         {
-            front_overview_publish_enabled_.store(false, std::memory_order_relaxed);
-            return;
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            {
+                RCLCPP_WARN(
+                    node_->get_logger(),
+                    "[%s] recvfrom(sa_right_eef_constraint UDP) failed: %s",
+                    name_.c_str(),
+                    std::strerror(errno));
+            }
+            break;
+        }
+        if (recv_size == 0)
+        {
+            break;
         }
 
-        constexpr int64_t kPublishPeriodNs = 2000000000LL;
-        if (last_front_overview_publish_time_ns_ != 0 &&
-            (now_ns - last_front_overview_publish_time_ns_) < kPublishPeriodNs)
+        Eigen::Vector3d constraint = Eigen::Vector3d::Zero();
+        if (!parseRightConstraintUdpPayload(buffer.data(), static_cast<size_t>(recv_size), constraint))
         {
-            return;
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "[%s] Invalid UDP payload for sa_right_eef_constraint (size=%zd)",
+                name_.c_str(),
+                recv_size);
+            continue;
         }
 
-        last_front_overview_publish_time_ns_ = now_ns;
+        (void)handleRightConstraintVector(constraint);
     }
+}
 
-    front_overview_image_pub_->publish(resized);
-
-    if (front_overview_publish_log_pending_.exchange(false, std::memory_order_relaxed))
+bool SAViveTracker::sendFrontOverviewTriggerUdp()
+{
+    if (front_overview_trigger_udp_sock_ < 0)
     {
-        RCLCPP_INFO(node_->get_logger(),
-                    "[%s] Started publishing resized front_overview images on sa_front_overview/image_raw",
-                    name_.c_str());
+        return false;
     }
+
+    sockaddr_in dest_addr{};
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(static_cast<uint16_t>(front_overview_trigger_udp_port_));
+    if (::inet_pton(AF_INET, front_overview_trigger_udp_ip_.c_str(), &dest_addr.sin_addr) != 1)
+    {
+        RCLCPP_ERROR(
+            node_->get_logger(),
+            "[%s] Invalid sa_front_overview_trigger_udp_ip: %s",
+            name_.c_str(),
+            front_overview_trigger_udp_ip_.c_str());
+        return false;
+    }
+
+    const bool payload = front_overview_trigger_udp_value_;
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        const ssize_t sent_size = ::sendto(
+            front_overview_trigger_udp_sock_,
+            &payload,
+            sizeof(payload),
+            0,
+            reinterpret_cast<const sockaddr*>(&dest_addr),
+            sizeof(dest_addr));
+        if (sent_size < 0)
+        {
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "[%s] Failed to send front_overview UDP trigger to %s:%d on attempt %d: %s",
+                name_.c_str(),
+                front_overview_trigger_udp_ip_.c_str(),
+                front_overview_trigger_udp_port_,
+                attempt + 1,
+                std::strerror(errno));
+            return false;
+        }
+    }
+
+    return true;
 }
 
 

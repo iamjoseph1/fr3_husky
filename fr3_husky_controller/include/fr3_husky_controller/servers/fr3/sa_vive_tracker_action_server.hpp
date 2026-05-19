@@ -1,7 +1,10 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <type_traits>
 
 #include <action_msgs/msg/goal_status.hpp>
@@ -16,9 +19,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
-#include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/joy.hpp>
-#include <std_msgs/msg/float64_multi_array.hpp>
 
 #define NUM_TRACKERS    3 // left, right, head
 #define NUM_CONTROLLERS 2 // left, right (only Focus3 controllers)
@@ -46,7 +47,7 @@ public:
     using ResultPtr = typename Base::ResultPtr;
 
     SAViveTracker(const std::string& name, const NodePtr& node, ModelUpdaterBase& model_updater);
-    ~SAViveTracker() override = default;
+    ~SAViveTracker() override;
 
     int priority() const override { return 7; }
     bool allowPreemption() const override { return true; }
@@ -67,15 +68,15 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr  pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr l_joy_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr r_joy_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr right_constraint_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr front_overview_image_sub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr front_overview_image_pub_;
+    rclcpp::TimerBase::SharedPtr right_constraint_udp_poll_timer_;
 
     void subPoseCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
     void subLJoyCallback(const sensor_msgs::msg::Joy::SharedPtr msg);
     void subRJoyCallback(const sensor_msgs::msg::Joy::SharedPtr msg);
-    void subRightConstraintCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
-    void subFrontOverviewImageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
+    void pollRightConstraintUdp();
+    bool handleRightConstraintVector(const Eigen::Vector3d& constraint);
+    bool parseRightConstraintUdpPayload(const uint8_t* data, size_t size, Eigen::Vector3d& constraint) const;
+    bool sendFrontOverviewTriggerUdp();
 
     // vive controller state data
     std::vector<Eigen::Affine3d> controller_poses_;      // left, right, head
@@ -104,7 +105,6 @@ private:
     std::mutex tracker_pose_mutex_;
     std::mutex button_state_mutex_;
     std::mutex right_constraint_mutex_;
-    std::mutex front_overview_publish_mutex_;
 
     Eigen::Vector3d right_constraint_vector_ = Eigen::Vector3d::Zero();
     bool right_constraint_received_{false};
@@ -113,10 +113,13 @@ private:
     bool right_constraint_anchor_pose_locked_{false};
     Eigen::Affine3d right_constraint_anchor_pose_ = Eigen::Affine3d::Identity();
     Eigen::Matrix3d right_constraint_locked_orientation_ = Eigen::Matrix3d::Identity();
-    std::atomic<bool> front_overview_publish_enabled_{false};
-    std::atomic<bool> front_overview_publish_log_pending_{false};
-    int64_t last_front_overview_publish_time_ns_{0};
-    int64_t front_overview_publish_until_ns_{0};
+    int front_overview_trigger_udp_sock_{-1};
+    int right_constraint_udp_sock_{-1};
+    std::string front_overview_trigger_udp_ip_{"100.83.23.26"}; // 5090v1 서버 tailscale IP
+    int front_overview_trigger_udp_port_{5008};
+    bool front_overview_trigger_udp_value_{true};
+    std::string right_constraint_udp_bind_ip_{"0.0.0.0"};
+    int right_constraint_udp_bind_port_{5009};
 
     // initialize mode: button A -> send goal to fr3_move_to_joint
     const Eigen::Vector<double, FR3_DOF> HomePose{0., -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};
