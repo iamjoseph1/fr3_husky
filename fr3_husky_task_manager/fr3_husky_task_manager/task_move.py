@@ -80,9 +80,11 @@ def make_pose_stamped(pose, frame_id='world'):
 
 
 class TaskMoveClient(Node):
-    def __init__(self, arm='right', right_pose=None, left_pose=None, execution_time=3.0, frame_id='world', abs_target=True):
+    def __init__(self, arm='right', right_pose=None, left_pose=None, execution_time=3.0,
+                 frame_id='world', abs_target=True, target='fr3_husky'):
         super().__init__('task_move_client')
-        self._action_name = '/fr3_husky_task_move'
+        self._target = target
+        self._action_name = '/fr3_husky_task_move' if target == 'fr3_husky' else '/fr3_task_move'
         self._client = ActionClient(self, TaskMove, self._action_name)
         self._goal_handle = None
         self._result_future = None
@@ -191,7 +193,8 @@ class TaskMoveClient(Node):
                 )
 
 
-def run_task_move(arm='right', right_pose=None, left_pose=None, execution_time=3.0, frame_id='world', abs_target=False):
+def run_task_move(arm='right', right_pose=None, left_pose=None, execution_time=3.0,
+                  frame_id='world', abs_target=False, target='fr3_husky'):
     rclpy.init()
     node = TaskMoveClient(
         arm=arm,
@@ -200,6 +203,7 @@ def run_task_move(arm='right', right_pose=None, left_pose=None, execution_time=3
         execution_time=execution_time,
         frame_id=frame_id,
         abs_target=abs_target,
+        target=target,
     )
     try:
         node.send_goal_and_wait()
@@ -221,6 +225,7 @@ def main(args=None):
     parser.add_argument('--left-pose', type=float, nargs='+', default=[0.10, 0.0, 0.0])
     parser.add_argument('--execution-time', type=float, default=3.0)
     parser.add_argument('--frame-id', default='odom')
+    parser.add_argument('--target', choices=['fr3_husky', 'fr3'], default='fr3_husky')
     parser.add_argument('--abs', action='store_true', dest='abs_target', help='Treat target poses as absolute global poses. Default is delta pose from current global EEF pose.') # 기본값은 상대위치
     parser.add_argument(
         '--task',
@@ -246,6 +251,7 @@ def main(args=None):
         execution_time=cli_args.execution_time,
         frame_id=cli_args.frame_id,
         abs_target=abs_target,
+        target=cli_args.target,
     )
 
 

@@ -171,7 +171,8 @@ def _launch_setup(context, *args, **kwargs):
             remappings=[('joint_states', joint_states_topic)],
             output='screen',
             on_exit=Shutdown(),
-            prefix=controller_prefix,
+            # prefix=controller_prefix,
+            prefix='taskset -c 2,3',
         ),
         # joint_state_publisher: only for real hardware (merges arm + gripper joint states).
         # For MuJoCo, robot_state_publisher subscribes directly via rsp_remappings above.

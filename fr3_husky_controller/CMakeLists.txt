@@ -126,10 +126,12 @@ add_library(${PROJECT_NAME} SHARED
     src/test_fr3_husky_controller.cpp
     src/servers/fr3/joint_trajectory_controller_action_server.cpp
     src/servers/fr3/move_to_joint_action_server.cpp
+    src/servers/fr3/task_move_action_server.cpp
     src/servers/fr3_husky/joint_trajectory_controller_action_server.cpp
     src/servers/fr3_husky/move_to_joint_action_server.cpp
     src/servers/fr3_husky/gripper_command_action_server.cpp
     src/servers/fr3/vive_tracker_action_server.cpp
+    src/servers/fr3/sa_vive_tracker_action_server.cpp
     src/servers/fr3_husky/vive_tracker_action_server.cpp
     src/servers/fr3_husky/husky_move_action_server.cpp
     src/servers/fr3_husky/husky_pedal_action_server.cpp
