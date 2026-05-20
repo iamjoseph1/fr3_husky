@@ -219,6 +219,9 @@ void TaskMove::onStart()
     goal_reached_ = false;
     debug_tick_ = 0;
     start_time_ = node_->now().seconds();
+    pending_move_to_joint_goal_ = MoveToJointAction::Goal();
+    move_to_joint_goal_ready_ = false;
+    move_to_joint_goal_sent_ = false;
     move_to_joint_goal_pending_ = false;
     move_to_joint_goal_rejected_ = false;
     move_to_joint_dispatch_error_.clear();
@@ -240,11 +243,8 @@ void TaskMove::onStart()
         return;
     }
 
-    MoveToJointAction::Goal move_goal;
-    populateMoveToJointGoal(q_solution, move_goal);
-    auto send_options = rclcpp_action::Client<MoveToJointAction>::SendGoalOptions();
-    move_to_joint_goal_future_ = move_to_joint_client_->async_send_goal(move_goal, send_options);
-    move_to_joint_goal_pending_ = true;
+    populateMoveToJointGoal(q_solution, pending_move_to_joint_goal_);
+    move_to_joint_goal_ready_ = true;
 
     RCLCPP_INFO(node_->get_logger(), "[%s] started for arm='%s'", name_.c_str(), arm_names_.c_str());
 }
@@ -262,33 +262,63 @@ TaskMove::ComputeResult TaskMove::compute(const rclcpp::Time& time, const rclcpp
         return ComputeResult::ABORTED;
     }
 
-    if (!move_to_joint_goal_pending_)
+    if (move_to_joint_goal_sent_)
     {
-        publishFeedback(feedback);
-        return ComputeResult::ABORTED;
-    }
-
-    if (move_to_joint_goal_future_.valid() &&
-        move_to_joint_goal_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-    {
-        const auto goal_handle = move_to_joint_goal_future_.get();
-        move_to_joint_goal_pending_ = false;
-        if (!goal_handle)
-        {
-            move_to_joint_goal_rejected_ = true;
-            move_to_joint_dispatch_error_ = "fr3_move_to_joint rejected the goal";
-            publishFeedback(feedback);
-            return ComputeResult::ABORTED;
-        }
-
         feedback->progress = 1.0;
         publishFeedback(feedback);
         goal_reached_ = true;
         return ComputeResult::SUCCEEDED;
     }
 
+    if (!move_to_joint_goal_ready_)
+    {
+        publishFeedback(feedback);
+        return ComputeResult::ABORTED;
+    }
+
+    auto send_options = rclcpp_action::Client<MoveToJointAction>::SendGoalOptions();
+    send_options.goal_response_callback =
+        [this](const MoveToJointGoalHandle::SharedPtr& goal_handle)
+        {
+            if (!goal_handle)
+            {
+                RCLCPP_ERROR(node_->get_logger(), "[%s] fr3_move_to_joint rejected the goal", name_.c_str());
+                return;
+            }
+            RCLCPP_INFO(node_->get_logger(), "[%s] handed off to fr3_move_to_joint", name_.c_str());
+        };
+    send_options.result_callback =
+        [this](const MoveToJointGoalHandle::WrappedResult& result)
+        {
+            if (result.code != rclcpp_action::ResultCode::SUCCEEDED)
+            {
+                RCLCPP_WARN(
+                    node_->get_logger(),
+                    "[%s] fr3_move_to_joint finished with result code %d",
+                    name_.c_str(),
+                    static_cast<int>(result.code));
+            }
+        };
+
+    try
+    {
+        move_to_joint_client_->async_send_goal(pending_move_to_joint_goal_, send_options);
+        move_to_joint_goal_sent_ = true;
+        move_to_joint_goal_ready_ = false;
+        feedback->progress = 1.0;
+        publishFeedback(feedback);
+        goal_reached_ = true;
+        return ComputeResult::SUCCEEDED;
+    }
+    catch (const std::exception& e)
+    {
+        move_to_joint_dispatch_error_ = std::string("failed to send fr3_move_to_joint goal: ") + e.what();
+        publishFeedback(feedback);
+        return ComputeResult::ABORTED;
+    }
+
     publishFeedback(feedback);
-    return ComputeResult::RUNNING;
+    return ComputeResult::ABORTED;
 }
 
 void TaskMove::onStop(StopReason reason)
@@ -475,3 +505,5 @@ void TaskMove::populateMoveToJointGoal(
 REGISTER_FR3_ACTION_SERVER(TaskMove, "fr3_task_move")
 
 }  // namespace fr3_husky_controller::servers::fr3
+
+//  ros2 action send_goal /fr3_task_move fr3_husky_msgs/action/TaskMove "{arm_names: 'right', target_poses: [{header: {frame_id: ''}, pose: {position: {x: 0.05, y: 0.0, z: 0.0}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}], execution_time: 3.0, abs: false}"

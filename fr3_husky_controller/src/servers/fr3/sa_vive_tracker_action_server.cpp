@@ -38,6 +38,19 @@ std::string getRobotNameFromEEName(const std::string& ee_name)
     return "";
 }
 
+std::string getRightConstraintEEName(
+    const FR3ModelUpdater& model_updater,
+    const std::string& fallback_ee_name)
+{
+    constexpr const char* kRightConstraintEEName = "right_fr3_hand_tcp";
+    if (model_updater.robot_data_ &&
+        model_updater.robot_data_->hasLinkFrame(kRightConstraintEEName))
+    {
+        return kRightConstraintEEName;
+    }
+    return fallback_ee_name;
+}
+
 Eigen::Vector3d extractSelectedAxis(const Eigen::Vector3d& selector)
 {
     Eigen::Index dominant_idx = 0;
@@ -312,6 +325,24 @@ void SAViveTracker::onGoalAccepted(const ActionT::Goal& goal)
 
 void SAViveTracker::onStart()
 {
+    const std::string right_constraint_ee_name =
+        getRightConstraintEEName(fr3_model_updater_, right_controller_ee_name_);
+    const auto init_ee_target =
+        [this](const std::string& ee_name)
+        {
+            if (ee_name.empty() || ee_data_.count(ee_name) != 0)
+            {
+                return;
+            }
+
+            ee_data_[ee_name] = drc::TaskSpaceData::Zero();
+            ee_data_[ee_name].x = fr3_model_updater_.robot_data_->getPose(ee_name);
+            ee_data_[ee_name].xdot = fr3_model_updater_.robot_data_->getVelocity(ee_name);
+            ee_data_[ee_name].xddot.setZero();
+            ee_data_[ee_name].setInit();
+            ee_data_[ee_name].setDesired();
+        };
+
     {
         std::lock_guard<std::mutex> lock(tracker_pose_mutex_);
         for(auto& tracker_pose : controller_poses_) tracker_pose.setIdentity();
@@ -331,24 +362,9 @@ void SAViveTracker::onStart()
     right_constraint_orientation_locked_ = false;
     right_constraint_anchor_pose_locked_ = false;
 
-    if(!left_controller_ee_name_.empty())
-    {
-        ee_data_[left_controller_ee_name_] = drc::TaskSpaceData::Zero();
-        ee_data_[left_controller_ee_name_].x = fr3_model_updater_.robot_data_->getPose(left_controller_ee_name_);
-        ee_data_[left_controller_ee_name_].xdot = fr3_model_updater_.robot_data_->getVelocity(left_controller_ee_name_);
-        ee_data_[left_controller_ee_name_].xddot.setZero();
-        ee_data_[left_controller_ee_name_].setInit();
-        ee_data_[left_controller_ee_name_].setDesired();
-    }
-    if(!right_controller_ee_name_.empty())
-    {
-        ee_data_[right_controller_ee_name_] = drc::TaskSpaceData::Zero();
-        ee_data_[right_controller_ee_name_].x = fr3_model_updater_.robot_data_->getPose(right_controller_ee_name_);
-        ee_data_[right_controller_ee_name_].xdot = fr3_model_updater_.robot_data_->getVelocity(right_controller_ee_name_);
-        ee_data_[right_controller_ee_name_].xddot.setZero();
-        ee_data_[right_controller_ee_name_].setInit();
-        ee_data_[right_controller_ee_name_].setDesired();
-    }
+    init_ee_target(left_controller_ee_name_);
+    init_ee_target(right_controller_ee_name_);
+    init_ee_target(right_constraint_ee_name);
 
     RCLCPP_INFO(node_->get_logger(), "[%s] started", name_.c_str());
 }
@@ -375,6 +391,13 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
     Eigen::Vector3d right_constraint_vector_local = Eigen::Vector3d::Zero();
     bool right_constraint_received_local = false;
     bool right_constraint_applying_local = false;
+    const std::string right_constraint_ee_name =
+        getRightConstraintEEName(fr3_model_updater_, right_controller_ee_name_);
+    const auto controller_ee_name =
+        [this](size_t controller_idx) -> const std::string&
+        {
+            return (controller_idx == IDX_LEFT_CON) ? left_controller_ee_name_ : right_controller_ee_name_;
+        };
     {
         std::lock_guard<std::mutex> lock(right_constraint_mutex_);
         right_constraint_vector_local = right_constraint_vector_;
@@ -502,8 +525,22 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
                 is_mouse_mode_on_[i] = true;
     
                 controller_poses_init_[i] = controller_poses_local[i];
-                if(i == 0 && !left_controller_ee_name_.empty())       ee_data_[left_controller_ee_name_].setInit();
-                else if(i == 1 && !right_controller_ee_name_.empty()) ee_data_[right_controller_ee_name_].setInit();
+                const std::string& controlled_ee_name = controller_ee_name(i);
+                if (!controlled_ee_name.empty())
+                {
+                    ee_data_[controlled_ee_name].setInit();
+                    if (controlled_ee_name == right_constraint_ee_name)
+                    {
+                        std::lock_guard<std::mutex> lock(right_constraint_mutex_);
+                        if (right_constraint_received_)
+                        {
+                            right_constraint_anchor_pose_ = ee_data_[controlled_ee_name].x;
+                            right_constraint_anchor_pose_locked_ = true;
+                            right_constraint_locked_orientation_ = ee_data_[controlled_ee_name].x.linear();
+                            right_constraint_orientation_locked_ = true;
+                        }
+                    }
+                }
             }
             else if(is_mouse_mode_on_[i] && !button_states_local[i][IDX_GRIP_BUTTON]) // deactivate mouse mode when grip button released
             {
@@ -511,8 +548,32 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
                 is_mouse_mode_on_[i] = false;
     
                 controller_poses_init_[i] = controller_poses_local[i];
-                if(i == IDX_LEFT_CON && !left_controller_ee_name_.empty())        ee_data_[left_controller_ee_name_].setInit();
-                else if(i == IDX_RIGHT_CON && !right_controller_ee_name_.empty()) ee_data_[right_controller_ee_name_].setInit();
+                const std::string& controlled_ee_name = controller_ee_name(i);
+                if (!controlled_ee_name.empty())
+                {
+                    auto& controlled_ee = ee_data_[controlled_ee_name];
+                    if (controlled_ee_name == right_constraint_ee_name)
+                    {
+                        const Eigen::Affine3d hold_pose = controlled_ee.x_desired;
+                        controlled_ee.x_init = hold_pose;
+                        controlled_ee.x_desired = hold_pose;
+                        controlled_ee.xdot_desired.setZero();
+                        controlled_ee.xddot_desired.setZero();
+
+                        std::lock_guard<std::mutex> lock(right_constraint_mutex_);
+                        if (right_constraint_received_)
+                        {
+                            right_constraint_anchor_pose_ = hold_pose;
+                            right_constraint_anchor_pose_locked_ = true;
+                            right_constraint_locked_orientation_ = hold_pose.linear();
+                            right_constraint_orientation_locked_ = true;
+                        }
+                    }
+                    else
+                    {
+                        controlled_ee.setInit();
+                    }
+                }
             }
         }
     
@@ -549,7 +610,7 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
             ee_data_[left_controller_ee_name_].xdot_desired  = target_vel;
         }
     
-        if(!right_controller_ee_name_.empty()) // right vive controller
+        if(!right_controller_ee_name_.empty()) // right vive controller follows action-goal mapping
         {
             Eigen::Affine3d target_pose_diff; // EE init -> EE desired
             Eigen::Vector6d target_vel;
@@ -577,7 +638,13 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
                 }
             }
 
-            Eigen::Affine3d raw_target = ee_data_[right_controller_ee_name_].x_init * target_pose_diff;
+            ee_data_[right_controller_ee_name_].x_desired = ee_data_[right_controller_ee_name_].x_init * target_pose_diff;
+            ee_data_[right_controller_ee_name_].xdot_desired  = target_vel;
+        }
+
+        if(!right_constraint_ee_name.empty()) // apply right-side guidance constraint to right_fr3_hand_tcp
+        {
+            Eigen::Affine3d raw_target = ee_data_[right_constraint_ee_name].x_desired;
             if (right_constraint_received_local && right_constraint_applying_local)
             {
                 Eigen::Matrix3d locked_orientation = Eigen::Matrix3d::Identity();
@@ -586,12 +653,12 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
                     std::lock_guard<std::mutex> lock(right_constraint_mutex_);
                     if (!right_constraint_orientation_locked_)
                     {
-                        right_constraint_locked_orientation_ = ee_data_[right_controller_ee_name_].x.linear();
+                        right_constraint_locked_orientation_ = ee_data_[right_constraint_ee_name].x.linear();
                         right_constraint_orientation_locked_ = true;
                     }
                     if (!right_constraint_anchor_pose_locked_)
                     {
-                        right_constraint_anchor_pose_ = ee_data_[right_controller_ee_name_].x;
+                        right_constraint_anchor_pose_ = ee_data_[right_constraint_ee_name].x;
                         right_constraint_anchor_pose_locked_ = true;
                     }
                     locked_orientation = right_constraint_locked_orientation_;
@@ -626,8 +693,7 @@ SAViveTracker::ComputeResult SAViveTracker::compute(const rclcpp::Time& /*time*/
                     right_constraint_vector_local);
             }
 
-            ee_data_[right_controller_ee_name_].x_desired = raw_target;
-            ee_data_[right_controller_ee_name_].xdot_desired  = target_vel;
+            ee_data_[right_constraint_ee_name].x_desired = raw_target;
         }
     
         bool is_qp_solved = true;

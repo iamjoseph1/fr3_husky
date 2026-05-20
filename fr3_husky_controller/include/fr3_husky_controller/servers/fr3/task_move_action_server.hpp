@@ -61,6 +61,9 @@ private:
     std::map<std::string, bool> use_delta_targets_;
     bool goal_reached_{false};
     std::size_t debug_tick_{0};
+    MoveToJointAction::Goal pending_move_to_joint_goal_;
+    bool move_to_joint_goal_ready_{false};
+    bool move_to_joint_goal_sent_{false};
     std::shared_future<typename MoveToJointGoalHandle::SharedPtr> move_to_joint_goal_future_;
     bool move_to_joint_goal_pending_{false};
     bool move_to_joint_goal_rejected_{false};
