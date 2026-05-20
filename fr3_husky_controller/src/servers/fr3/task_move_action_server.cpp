@@ -1,6 +1,10 @@
 #include <fr3_husky_controller/servers/fr3/task_move_action_server.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <future>
+#include <limits>
 #include <stdexcept>
 
 namespace fr3_husky_controller::servers::fr3
@@ -36,12 +40,26 @@ bool hasEE(const FR3ModelUpdater& model_updater, const std::string& ee_name)
     return !ee_name.empty() && model_updater.robot_data_ && model_updater.robot_data_->hasLinkFrame(ee_name);
 }
 
+Eigen::Vector3d rotationError(
+    const Eigen::Matrix3d& desired_rotation,
+    const Eigen::Matrix3d& current_rotation)
+{
+    const Eigen::Matrix3d rotation_delta = desired_rotation * current_rotation.transpose();
+    Eigen::AngleAxisd angle_axis(rotation_delta);
+    if (std::abs(angle_axis.angle()) < 1e-9 || angle_axis.axis().squaredNorm() < 1e-12)
+    {
+        return Eigen::Vector3d::Zero();
+    }
+    return angle_axis.axis() * angle_axis.angle();
+}
+
 }  // namespace
 
 TaskMove::TaskMove(const std::string& name, const NodePtr& node, ModelUpdaterBase& model_updater)
 : Base(name, node, model_updater),
   fr3_model_updater_(getFR3ModelUpdater(model_updater, name))
 {
+    move_to_joint_client_ = rclcpp_action::create_client<MoveToJointAction>(node_, "fr3_move_to_joint");
     RCLCPP_INFO(node_->get_logger(), "[%s] TaskMove created", name_.c_str());
 }
 
@@ -165,20 +183,14 @@ void TaskMove::onStart()
             target_poses_[ee_name] = ee_data_[ee_name].x_init;
             target_poses_[ee_name].translation() += target_position_deltas_[ee_name];
         }
+
+        // Match the old TaskMove semantics: track position only and keep the
+        // end-effector orientation fixed at the start pose.
+        target_poses_[ee_name].linear() = ee_data_[ee_name].x_init.linear();
     }
 
-    goal_reached_ = false;
-    start_time_ = node_->now().seconds();
-
-    RCLCPP_INFO(node_->get_logger(), "[%s] started for arm='%s'", name_.c_str(), arm_names_.c_str());
-}
-
-TaskMove::ComputeResult TaskMove::compute(const rclcpp::Time& time, const rclcpp::Duration& /*period*/)
-{
-    const double elapsed = time.seconds() - start_time_;
-    const double clipped_time = std::min(elapsed, execution_time_);
-    const double alpha = execution_time_ > 1e-9 ? std::clamp(clipped_time / execution_time_, 0.0, 1.0) : 1.0;
-
+    // In dual-arm mode, latch the idle arm pose once so the solver has a
+    // fixed hold target instead of chasing the arm's current drifting pose.
     if ((arm_names_ == "right" || arm_names_ == "fr3") && hasEE(fr3_model_updater_, "left_fr3_hand_tcp"))
     {
         auto& left_hold = ee_data_["left_fr3_hand_tcp"];
@@ -187,7 +199,7 @@ TaskMove::ComputeResult TaskMove::compute(const rclcpp::Time& time, const rclcpp
         left_hold.xdot = fr3_model_updater_.robot_data_->getVelocity("left_fr3_hand_tcp");
         left_hold.xddot.setZero();
         left_hold.setInit();
-        left_hold.x_desired = left_hold.x;
+        left_hold.x_desired = left_hold.x_init;
         left_hold.xdot_desired.setZero();
         left_hold.xddot_desired.setZero();
     }
@@ -199,75 +211,83 @@ TaskMove::ComputeResult TaskMove::compute(const rclcpp::Time& time, const rclcpp
         right_hold.xdot = fr3_model_updater_.robot_data_->getVelocity("right_fr3_hand_tcp");
         right_hold.xddot.setZero();
         right_hold.setInit();
-        right_hold.x_desired = right_hold.x;
+        right_hold.x_desired = right_hold.x_init;
         right_hold.xdot_desired.setZero();
         right_hold.xddot_desired.setZero();
     }
 
-    for (auto& [ee_name, ee_data] : ee_data_)
+    goal_reached_ = false;
+    debug_tick_ = 0;
+    start_time_ = node_->now().seconds();
+    move_to_joint_goal_pending_ = false;
+    move_to_joint_goal_rejected_ = false;
+    move_to_joint_dispatch_error_.clear();
+    move_to_joint_goal_future_ = {};
+
+    if (!move_to_joint_client_->wait_for_action_server(std::chrono::seconds(2)))
     {
-        ee_data.x = fr3_model_updater_.robot_data_->getPose(ee_name);
-        ee_data.xdot = fr3_model_updater_.robot_data_->getVelocity(ee_name);
-        ee_data.xddot.setZero();
-
-        const auto target_it = target_poses_.find(ee_name);
-        if (target_it == target_poses_.end())
-        {
-            ee_data.x_desired = ee_data.x_init;
-            ee_data.xdot_desired.setZero();
-            ee_data.xddot_desired.setZero();
-            continue;
-        }
-
-        const Eigen::Affine3d& target_pose = target_it->second;
-
-        Eigen::Vector3d p_des;
-        for (int i = 0; i < 3; ++i)
-        {
-            p_des(i) = dyros_math::cubic(
-                clipped_time,
-                0.0,
-                execution_time_,
-                ee_data.x_init.translation()(i),
-                target_pose.translation()(i),
-                0.0,
-                0.0);
-        }
-
-        ee_data.x_desired = Eigen::Affine3d::Identity();
-        ee_data.x_desired.translation() = p_des;
-        ee_data.x_desired.linear() = ee_data.x_init.linear();
-        ee_data.xdot_desired.setZero();
-        ee_data.xddot_desired.setZero();
+        move_to_joint_dispatch_error_ = "fr3_move_to_joint action server is unavailable";
+        RCLCPP_ERROR(node_->get_logger(), "[%s] %s", name_.c_str(), move_to_joint_dispatch_error_.c_str());
+        return;
     }
 
-    fr3_model_updater_.robot_controller_->CLIKStep(
-        ee_data_,
-        fr3_model_updater_.qdot_desired_total_);
+    Eigen::VectorXd q_solution;
+    std::string ik_error;
+    if (!solveIkTarget(q_solution, ik_error))
+    {
+        move_to_joint_dispatch_error_ = ik_error.empty() ? "IK solve failed" : ik_error;
+        RCLCPP_ERROR(node_->get_logger(), "[%s] %s", name_.c_str(), move_to_joint_dispatch_error_.c_str());
+        return;
+    }
 
-    fr3_model_updater_.q_desired_total_ =
-        fr3_model_updater_.q_total_ +
-        fr3_model_updater_.dt_ * fr3_model_updater_.qdot_desired_total_;
+    MoveToJointAction::Goal move_goal;
+    populateMoveToJointGoal(q_solution, move_goal);
+    auto send_options = rclcpp_action::Client<MoveToJointAction>::SendGoalOptions();
+    move_to_joint_goal_future_ = move_to_joint_client_->async_send_goal(move_goal, send_options);
+    move_to_joint_goal_pending_ = true;
 
-    fr3_model_updater_.torque_desired_total_ =
-        fr3_model_updater_.robot_controller_->moveJointTorqueStep(
-            fr3_model_updater_.q_desired_total_,
-            fr3_model_updater_.qdot_desired_total_,
-            false);
+    RCLCPP_INFO(node_->get_logger(), "[%s] started for arm='%s'", name_.c_str(), arm_names_.c_str());
+}
 
-    fr3_model_updater_.writeCommand(
-        fr3_model_updater_.torque_desired_total_ - fr3_model_updater_.g_total_);
+TaskMove::ComputeResult TaskMove::compute(const rclcpp::Time& time, const rclcpp::Duration& /*period*/)
+{
+    model_updater_.haltCommands();
 
     auto feedback = std::make_shared<ActionT::Feedback>();
-    feedback->progress = alpha;
-    publishFeedback(feedback);
+    feedback->progress = 0.0;
 
-    if (elapsed >= execution_time_)
+    if (!move_to_joint_dispatch_error_.empty())
     {
+        publishFeedback(feedback);
+        return ComputeResult::ABORTED;
+    }
+
+    if (!move_to_joint_goal_pending_)
+    {
+        publishFeedback(feedback);
+        return ComputeResult::ABORTED;
+    }
+
+    if (move_to_joint_goal_future_.valid() &&
+        move_to_joint_goal_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+    {
+        const auto goal_handle = move_to_joint_goal_future_.get();
+        move_to_joint_goal_pending_ = false;
+        if (!goal_handle)
+        {
+            move_to_joint_goal_rejected_ = true;
+            move_to_joint_dispatch_error_ = "fr3_move_to_joint rejected the goal";
+            publishFeedback(feedback);
+            return ComputeResult::ABORTED;
+        }
+
+        feedback->progress = 1.0;
+        publishFeedback(feedback);
         goal_reached_ = true;
         return ComputeResult::SUCCEEDED;
     }
 
+    publishFeedback(feedback);
     return ComputeResult::RUNNING;
 }
 
@@ -289,7 +309,7 @@ TaskMove::ResultPtr TaskMove::makeResult(StopReason reason)
     result->success = (reason == StopReason::SUCCEEDED);
     if (reason == StopReason::SUCCEEDED)
     {
-        result->message = "TaskMove completed";
+        result->message = "TaskMove handed off to fr3_move_to_joint";
     }
     else if (reason == StopReason::CANCELED)
     {
@@ -297,9 +317,159 @@ TaskMove::ResultPtr TaskMove::makeResult(StopReason reason)
     }
     else
     {
-        result->message = "TaskMove aborted";
+        result->message = move_to_joint_dispatch_error_.empty() ? "TaskMove aborted" : move_to_joint_dispatch_error_;
     }
     return result;
+}
+
+bool TaskMove::solveIkTarget(Eigen::VectorXd& q_solution, std::string& error_message) const
+{
+    if (!fr3_model_updater_.robot_data_)
+    {
+        error_message = "robot_data is unavailable";
+        return false;
+    }
+
+    q_solution = fr3_model_updater_.q_total_;
+    const Eigen::Index dof = q_solution.size();
+    if (dof <= 0)
+    {
+        error_message = "invalid manipulator DoF";
+        return false;
+    }
+
+    std::vector<std::pair<std::string, Eigen::Affine3d>> tasks;
+    tasks.reserve(target_poses_.size() + 1);
+    for (const auto& [ee_name, target_pose] : target_poses_)
+    {
+        tasks.emplace_back(ee_name, target_pose);
+    }
+
+    if (fr3_model_updater_.num_robots_ == 2)
+    {
+        if ((arm_names_ == "right" || arm_names_ == "fr3") && ee_data_.count("left_fr3_hand_tcp") > 0)
+        {
+            tasks.emplace_back("left_fr3_hand_tcp", ee_data_.at("left_fr3_hand_tcp").x_init);
+        }
+        else if (arm_names_ == "left" && ee_data_.count("right_fr3_hand_tcp") > 0)
+        {
+            tasks.emplace_back("right_fr3_hand_tcp", ee_data_.at("right_fr3_hand_tcp").x_init);
+        }
+    }
+
+    if (tasks.empty())
+    {
+        error_message = "no IK tasks to solve";
+        return false;
+    }
+
+    constexpr int kMaxIterations = 200;
+    constexpr double kStepScale = 0.4;
+    constexpr double kDamping = 1e-3;
+    constexpr double kPositionTolerance = 1e-3;
+    constexpr double kOrientationTolerance = 5e-3;
+    constexpr double kMaxDeltaNorm = 0.2;
+
+    double last_error_norm = std::numeric_limits<double>::infinity();
+    for (int iter = 0; iter < kMaxIterations; ++iter)
+    {
+        const Eigen::Index task_dim = static_cast<Eigen::Index>(6 * tasks.size());
+        Eigen::VectorXd error = Eigen::VectorXd::Zero(task_dim);
+        Eigen::MatrixXd jacobian = Eigen::MatrixXd::Zero(task_dim, dof);
+
+        double max_pos_err = 0.0;
+        double max_rot_err = 0.0;
+        for (std::size_t task_index = 0; task_index < tasks.size(); ++task_index)
+        {
+            const auto& [ee_name, target_pose] = tasks[task_index];
+            const Eigen::Affine3d current_pose = fr3_model_updater_.robot_data_->computePose(q_solution, ee_name);
+            const Eigen::MatrixXd jacobian_full = fr3_model_updater_.robot_data_->computeJacobian(q_solution, ee_name);
+
+            const Eigen::Vector3d pos_err = target_pose.translation() - current_pose.translation();
+            const Eigen::Vector3d rot_err = rotationError(target_pose.linear(), current_pose.linear());
+
+            max_pos_err = std::max(max_pos_err, pos_err.norm());
+            max_rot_err = std::max(max_rot_err, rot_err.norm());
+
+            const Eigen::Index row = static_cast<Eigen::Index>(6 * task_index);
+            error.segment<3>(row) = pos_err;
+            error.segment<3>(row + 3) = rot_err;
+            jacobian.block(row, 0, 6, dof) = jacobian_full.leftCols(dof);
+        }
+
+        if (max_pos_err < kPositionTolerance && max_rot_err < kOrientationTolerance)
+        {
+            return true;
+        }
+
+        Eigen::MatrixXd normal = jacobian * jacobian.transpose();
+        normal.diagonal().array() += kDamping * kDamping;
+        Eigen::VectorXd delta_q = jacobian.transpose() * normal.ldlt().solve(error);
+
+        if (fr3_model_updater_.num_robots_ == 2)
+        {
+            if (arm_names_ == "right" || arm_names_ == "fr3")
+            {
+                delta_q.segment(0, FR3_DOF).setZero();
+            }
+            else if (arm_names_ == "left")
+            {
+                delta_q.segment(FR3_DOF, FR3_DOF).setZero();
+            }
+        }
+
+        const double delta_norm = delta_q.norm();
+        if (!std::isfinite(delta_norm))
+        {
+            error_message = "IK produced non-finite joint update";
+            return false;
+        }
+        if (delta_norm > kMaxDeltaNorm)
+        {
+            delta_q *= (kMaxDeltaNorm / delta_norm);
+        }
+
+        q_solution += kStepScale * delta_q;
+        last_error_norm = error.norm();
+    }
+
+    error_message = "IK did not converge; final error norm=" + std::to_string(last_error_norm);
+    return false;
+}
+
+void TaskMove::populateMoveToJointGoal(
+    const Eigen::VectorXd& q_solution,
+    MoveToJointAction::Goal& goal) const
+{
+    goal.joint_names.clear();
+    goal.target_positions.clear();
+    goal.max_velocity_scaling_factor = 0.1;
+    goal.max_acceleration_scaling_factor = 0.1;
+
+    const auto append_arm = [&goal, &q_solution](const std::string& robot_name, Eigen::Index offset)
+    {
+        for (int joint_index = 0; joint_index < FR3_DOF; ++joint_index)
+        {
+            goal.joint_names.push_back(
+                robot_name + "_fr3_joint" + std::to_string(joint_index + 1));
+            goal.target_positions.push_back(q_solution(offset + joint_index));
+        }
+    };
+
+    if (arm_names_ == "both" || arm_names_ == "dual")
+    {
+        append_arm("left", 0);
+        append_arm("right", FR3_DOF);
+    }
+    else if (arm_names_ == "left")
+    {
+        append_arm("left", 0);
+    }
+    else
+    {
+        const Eigen::Index offset = (fr3_model_updater_.num_robots_ == 2) ? FR3_DOF : 0;
+        append_arm("right", offset);
+    }
 }
 
 REGISTER_FR3_ACTION_SERVER(TaskMove, "fr3_task_move")

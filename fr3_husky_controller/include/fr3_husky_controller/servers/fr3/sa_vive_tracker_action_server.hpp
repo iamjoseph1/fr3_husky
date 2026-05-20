@@ -116,10 +116,10 @@ private:
     int front_overview_trigger_udp_sock_{-1};
     int right_constraint_udp_sock_{-1};
     std::string front_overview_trigger_udp_ip_{"100.83.23.26"}; // 5090v1 서버 tailscale IP
-    int front_overview_trigger_udp_port_{5008};
+    int64_t front_overview_trigger_udp_port_{5008};
     bool front_overview_trigger_udp_value_{true};
     std::string right_constraint_udp_bind_ip_{"0.0.0.0"};
-    int right_constraint_udp_bind_port_{5009};
+    int64_t right_constraint_udp_bind_port_{5009};
 
     // initialize mode: button A -> send goal to fr3_move_to_joint
     const Eigen::Vector<double, FR3_DOF> HomePose{0., -0.785, 0.0, -2.356, 0.0, 1.571, 0.785};

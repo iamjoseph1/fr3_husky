@@ -114,13 +114,13 @@ SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, Model
     front_overview_trigger_udp_ip_ =
         node_->declare_parameter<std::string>("sa_front_overview_trigger_udp_ip", front_overview_trigger_udp_ip_);
     front_overview_trigger_udp_port_ =
-        node_->declare_parameter<int>("sa_front_overview_trigger_udp_port", front_overview_trigger_udp_port_);
+        node_->declare_parameter<int64_t>("sa_front_overview_trigger_udp_port", front_overview_trigger_udp_port_);
     front_overview_trigger_udp_value_ =
         node_->declare_parameter<bool>("sa_front_overview_trigger_udp_value", front_overview_trigger_udp_value_);
     right_constraint_udp_bind_ip_ =
         node_->declare_parameter<std::string>("sa_right_eef_constraint_udp_bind_ip", right_constraint_udp_bind_ip_);
     right_constraint_udp_bind_port_ =
-        node_->declare_parameter<int>("sa_right_eef_constraint_udp_bind_port", right_constraint_udp_bind_port_);
+        node_->declare_parameter<int64_t>("sa_right_eef_constraint_udp_bind_port", right_constraint_udp_bind_port_);
 
     front_overview_trigger_udp_sock_ = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (front_overview_trigger_udp_sock_ < 0)
@@ -169,7 +169,7 @@ SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, Model
         {
             RCLCPP_ERROR(
                 node_->get_logger(),
-                "[%s] Failed to bind UDP constraint socket on %s:%d: %s",
+                "[%s] Failed to bind UDP constraint socket on %s:%ld: %s",
                 name_.c_str(),
                 right_constraint_udp_bind_ip_.c_str(),
                 right_constraint_udp_bind_port_,
@@ -186,7 +186,7 @@ SAViveTracker::SAViveTracker(const std::string& name, const NodePtr& node, Model
             std::bind(&SAViveTracker::pollRightConstraintUdp, this));
         RCLCPP_INFO(
             node_->get_logger(),
-            "[%s] Listening for UDP right constraint on %s:%d",
+            "[%s] Listening for UDP right constraint on %s:%ld",
             name_.c_str(),
             right_constraint_udp_bind_ip_.c_str(),
             right_constraint_udp_bind_port_);
@@ -891,7 +891,7 @@ bool SAViveTracker::sendFrontOverviewTriggerUdp()
         {
             RCLCPP_WARN(
                 node_->get_logger(),
-                "[%s] Failed to send front_overview UDP trigger to %s:%d on attempt %d: %s",
+                "[%s] Failed to send front_overview UDP trigger to %s:%ld on attempt %d: %s",
                 name_.c_str(),
                 front_overview_trigger_udp_ip_.c_str(),
                 front_overview_trigger_udp_port_,
